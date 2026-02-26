@@ -1,0 +1,8 @@
+[package]
+name = "rustkernel-primitives"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustkernel-math = { path = "../rustkernel-math" }
+rustkernel-topology = { path = "../rustkernel-topology" }
