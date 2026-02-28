@@ -12,11 +12,32 @@ pub struct IntersectionLine {
     pub direction: Vec3,
 }
 
+/// A circle in 3D space from surface-surface intersection.
+#[derive(Debug, Clone)]
+pub struct IntersectionCircle {
+    pub center: Point3,
+    pub axis: Vec3,
+    pub radius: f64,
+    pub ref_dir: Vec3,
+}
+
+/// An ellipse in 3D space from surface-surface intersection.
+#[derive(Debug, Clone)]
+pub struct IntersectionEllipse {
+    pub center: Point3,
+    pub axis: Vec3,
+    pub semi_major: f64,
+    pub semi_minor: f64,
+    pub major_dir: Vec3,
+}
+
 /// An intersection curve resulting from surface-surface intersection.
 /// Enum rather than trait object — the set of analytical curve types is small and compile-time known.
 #[derive(Debug, Clone)]
 pub enum IntersectionCurve {
     Line(IntersectionLine),
+    Circle(IntersectionCircle),
+    Ellipse(IntersectionEllipse),
 }
 
 /// Result of intersecting two surfaces.

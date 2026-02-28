@@ -9,7 +9,8 @@ use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
 use crate::boolean::ops::BooleanError;
-use crate::geom::{AnalyticalGeomStore, LineSegment};
+use crate::geom::AnalyticalGeomStore;
+use crate::geom::LineSegment;
 use rustkernel_math::polygon2d::Polygon2D;
 
 /// Intersect a solid with a plane, returning the intersection as one or more
@@ -26,7 +27,7 @@ pub fn section_solid(
     let faces: Vec<FaceIdx> = topo.shells.get(shell_idx).faces.clone();
 
     // Add the section plane to the geom store once upfront.
-    let section_sid = geom.add_surface(crate::geom::Plane {
+    let section_sid = geom.add_plane(crate::geom::Plane {
         origin: plane_origin,
         normal: plane_normal.normalize(),
     });
@@ -38,10 +39,7 @@ pub fn section_solid(
         let sid = topo.faces.get(face_idx).surface_id;
         let face_kind = geom.surface_kind(sid);
 
-        let result = match &face_kind {
-            SurfaceKind::Plane { .. } => pipeline.solve(geom, sid, section_sid),
-            _ => continue,
-        };
+        let result = pipeline.solve(geom, sid, section_sid);
 
         let ssi_result = match result {
             Ok(r) => r,
@@ -90,6 +88,30 @@ pub fn section_solid(
                                     segments.push((p0, p1));
                                 }
                                 i += 2;
+                            }
+                        }
+                        IntersectionCurve::Circle(circ) => {
+                            // Sample the circle as a polyline for segment chaining.
+                            let n_samples = 32;
+                            let ref_y = circ.axis.cross(&circ.ref_dir);
+                            for i in 0..n_samples {
+                                let t0 = (i as f64 / n_samples as f64) * std::f64::consts::TAU;
+                                let t1 = ((i + 1) as f64 / n_samples as f64) * std::f64::consts::TAU;
+                                let p0 = circ.center + circ.radius * (t0.cos() * circ.ref_dir + t0.sin() * ref_y);
+                                let p1 = circ.center + circ.radius * (t1.cos() * circ.ref_dir + t1.sin() * ref_y);
+                                segments.push((p0, p1));
+                            }
+                        }
+                        IntersectionCurve::Ellipse(ell) => {
+                            // Sample the ellipse as a polyline for segment chaining.
+                            let n_samples = 32;
+                            let minor_dir = ell.axis.cross(&ell.major_dir);
+                            for i in 0..n_samples {
+                                let t0 = (i as f64 / n_samples as f64) * std::f64::consts::TAU;
+                                let t1 = ((i + 1) as f64 / n_samples as f64) * std::f64::consts::TAU;
+                                let p0 = ell.center + ell.semi_major * t0.cos() * ell.major_dir + ell.semi_minor * t0.sin() * minor_dir;
+                                let p1 = ell.center + ell.semi_major * t1.cos() * ell.major_dir + ell.semi_minor * t1.sin() * minor_dir;
+                                segments.push((p0, p1));
                             }
                         }
                     }
@@ -203,7 +225,7 @@ fn chain_segments_into_loops(
             let j = (i + 1) % n;
             let start_pt = geom.point(topo.vertices.get(verts[i]).point_id);
             let end_pt = geom.point(topo.vertices.get(verts[j]).point_id);
-            let curve_id = geom.add_curve(LineSegment {
+            let curve_id = geom.add_line_segment(LineSegment {
                 start: start_pt,
                 end: end_pt,
             });

@@ -5,7 +5,8 @@ use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
 use crate::boolean::curve_trimming::TrimmedSegment;
-use crate::geom::{AnalyticalGeomStore, LineSegment};
+use crate::geom::AnalyticalGeomStore;
+use crate::geom::LineSegment;
 
 /// Result of splitting a face along an intersection segment.
 pub struct SplitResult {
@@ -188,7 +189,7 @@ fn build_face_from_verts(
 
         let start_pt = geom.point(topo.vertices.get(origin).point_id);
         let end_pt = geom.point(topo.vertices.get(dest).point_id);
-        let curve_id = geom.add_curve(LineSegment {
+        let curve_id = geom.add_line_segment(LineSegment {
             start: start_pt,
             end: end_pt,
         });

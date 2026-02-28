@@ -55,6 +55,123 @@ pub fn classify_point_vs_solid(
     PointVsSolid::Outside
 }
 
+/// Compute ray-surface intersection. Returns (t, plane_origin_for_frame, plane_normal_for_frame).
+/// Returns None if the ray misses or the surface type is not supported.
+fn ray_surface_intersection(
+    point: &Point3,
+    ray_dir: &Vec3,
+    kind: &SurfaceKind,
+) -> Option<(f64, Point3, Vec3)> {
+    match kind {
+        SurfaceKind::Plane { origin, normal } => {
+            let denom = ray_dir.dot(normal);
+            if denom.abs() < 1e-12 {
+                return None;
+            }
+            let t = (origin - point).dot(normal) / denom;
+            Some((t, *origin, *normal))
+        }
+        SurfaceKind::Sphere { center, radius } => {
+            // Quadratic: |P + t*d - C|^2 = r^2
+            let r = radius.abs();
+            let oc = point - center;
+            let a = ray_dir.dot(ray_dir);
+            let b = 2.0 * oc.dot(ray_dir);
+            let c = oc.dot(&oc) - r * r;
+            let disc = b * b - 4.0 * a * c;
+            if disc < 0.0 {
+                return None;
+            }
+            let sqrt_disc = disc.sqrt();
+            let t1 = (-b - sqrt_disc) / (2.0 * a);
+            let t2 = (-b + sqrt_disc) / (2.0 * a);
+            // Pick the smallest positive t.
+            let t = if t1 > 1e-10 { t1 } else if t2 > 1e-10 { t2 } else { return None };
+            let hit = point + t * ray_dir;
+            let normal = (hit - center).normalize();
+            Some((t, hit, normal))
+        }
+        SurfaceKind::Cylinder { origin: co, axis, radius } => {
+            // Quadratic in the component perpendicular to axis.
+            let r = radius.abs();
+            let a_dir = axis.normalize();
+            let oc = point - co;
+            let d_perp = ray_dir - ray_dir.dot(&a_dir) * a_dir;
+            let oc_perp = oc - oc.dot(&a_dir) * a_dir;
+            let a = d_perp.dot(&d_perp);
+            let b = 2.0 * oc_perp.dot(&d_perp);
+            let c = oc_perp.dot(&oc_perp) - r * r;
+            let disc = b * b - 4.0 * a * c;
+            if disc < 0.0 {
+                return None;
+            }
+            let sqrt_disc = disc.sqrt();
+            let t1 = (-b - sqrt_disc) / (2.0 * a);
+            let t2 = (-b + sqrt_disc) / (2.0 * a);
+            let t = if t1 > 1e-10 { t1 } else if t2 > 1e-10 { t2 } else { return None };
+            let hit = point + t * ray_dir;
+            let to_hit = hit - co;
+            let normal = (to_hit - to_hit.dot(&a_dir) * a_dir).normalize();
+            Some((t, hit, normal))
+        }
+        SurfaceKind::Cone { apex, axis, half_angle } => {
+            // Quadratic for ray-cone intersection.
+            let a_dir = axis.normalize();
+            let ha = half_angle.abs();
+            let cos2 = ha.cos() * ha.cos();
+            let sin2 = ha.sin() * ha.sin();
+            let oc = point - apex;
+
+            let d_dot_a = ray_dir.dot(&a_dir);
+            let oc_dot_a = oc.dot(&a_dir);
+
+            let a = d_dot_a * d_dot_a - cos2 * ray_dir.dot(ray_dir) / (cos2 + sin2)
+                + sin2 * d_dot_a * d_dot_a / (cos2 + sin2);
+            // Simplified: use standard cone intersection formula.
+            let a_coeff = d_dot_a * d_dot_a * cos2 - ray_dir.dot(ray_dir) * sin2
+                + d_dot_a * d_dot_a * sin2;
+            // Actually, let's use the correct formula:
+            // For cone: (P·a)^2 * cos^2(α) = |P|^2 * sin^2(α) where P = hit - apex
+            // Substituting P = oc + t*d:
+            // (oc·a + t*d·a)^2 * cos^2 - (|oc + t*d|^2) * sin^2 = 0
+            // Expanding:
+            let qa = d_dot_a * d_dot_a * cos2 - (ray_dir.dot(ray_dir)) * sin2;
+            let qb = 2.0 * (d_dot_a * oc_dot_a * cos2 - ray_dir.dot(&oc) * sin2);
+            let qc = oc_dot_a * oc_dot_a * cos2 - oc.dot(&oc) * sin2;
+
+            let disc = qb * qb - 4.0 * qa * qc;
+            if disc < 0.0 || qa.abs() < 1e-20 {
+                return None;
+            }
+            let sqrt_disc = disc.sqrt();
+            let t1 = (-qb - sqrt_disc) / (2.0 * qa);
+            let t2 = (-qb + sqrt_disc) / (2.0 * qa);
+            // Only hits on the positive half of the cone (same side as axis direction).
+            let valid = |t: f64| -> bool {
+                if t < 1e-10 { return false; }
+                let p = oc + t * ray_dir;
+                p.dot(&a_dir) > 0.0
+            };
+            let t = if valid(t1) { t1 } else if valid(t2) { t2 } else { return None };
+            let hit = point + t * ray_dir;
+            let p = hit - apex;
+            let along = p.dot(&a_dir);
+            let radial = p - along * a_dir;
+            let normal = if radial.norm() > 1e-12 {
+                (ha.cos() * radial.normalize() - ha.sin() * a_dir).normalize()
+            } else {
+                a_dir
+            };
+            Some((t, hit, normal))
+        }
+        SurfaceKind::Torus { .. } => {
+            // Quartic — defer (return None, skip face).
+            None
+        }
+        SurfaceKind::Unknown => None,
+    }
+}
+
 /// Perform a single ray cast and count crossings.
 /// Returns None if the ray hits a degenerate case (edge/vertex).
 fn ray_cast_classify(
@@ -69,21 +186,14 @@ fn ray_cast_classify(
     for &face_idx in faces {
         let surface_id = topo.faces.get(face_idx).surface_id;
         let kind = geom.surface_kind(surface_id);
-        let (plane_origin, plane_normal) = match kind {
-            SurfaceKind::Plane { origin, normal } => (origin, normal),
-            _ => continue,
+
+        // Compute ray-surface intersection parameter t.
+        let (t, plane_origin, plane_normal) = match ray_surface_intersection(point, ray_dir, &kind) {
+            Some(result) => result,
+            None => continue,
         };
 
-        // Ray-plane intersection: t = (plane_origin - point) . normal / (ray_dir . normal)
-        let denom = ray_dir.dot(&plane_normal);
-        if denom.abs() < 1e-12 {
-            // Ray parallel to plane — skip.
-            continue;
-        }
-
-        let t = (plane_origin - point).dot(&plane_normal) / denom;
         if t < 1e-10 {
-            // Behind or at the ray origin — skip.
             continue;
         }
 
@@ -134,15 +244,23 @@ pub fn classify_face(
 ) -> FacePosition {
     let surface_id = topo.faces.get(face).surface_id;
     let kind = geom.surface_kind(surface_id);
-    let (face_origin, face_normal) = match kind {
-        SurfaceKind::Plane { origin, normal } => (origin, normal),
-        _ => return FacePosition::Outside,
+    let (face_origin, face_normal) = match &kind {
+        SurfaceKind::Plane { origin, normal } => (*origin, *normal),
+        _ => {
+            // For curved faces, use centroid and surface normal at centroid.
+            let boundary = face_boundary_points(topo, geom, face);
+            let centroid = compute_centroid(&boundary);
+            let normal = geom.surface_normal(surface_id, 0.0, 0.0);
+            (centroid, normal)
+        }
     };
 
-    // Check for coplanarity with any face of the other solid.
+    // Check for coplanarity with any face of the other solid (only for planar faces).
+    let is_planar = matches!(kind, SurfaceKind::Plane { .. });
     let other_shell = topo.solids.get(other_solid).shell;
     let other_faces = &topo.shells.get(other_shell).faces;
 
+    if is_planar {
     for &other_face_idx in other_faces {
         let other_sid = topo.faces.get(other_face_idx).surface_id;
         let other_kind = geom.surface_kind(other_sid);
@@ -184,6 +302,7 @@ pub fn classify_face(
             }
         }
     }
+    } // end if is_planar
 
     // Not coplanar — classify by centroid.
     let boundary = face_boundary_points(topo, geom, face);

@@ -73,6 +73,7 @@ pub fn make_box_into(
     // We'll use placeholder indices and fix them up.
     let solid_idx = topo.solids.alloc(Solid {
         shell: Idx::from_raw(0), // placeholder
+        genus: 0,
     });
     let shell_idx = topo.shells.alloc(Shell {
         faces: Vec::new(),
@@ -90,7 +91,7 @@ pub fn make_box_into(
             n if n.y.abs() > 0.5 => hy,
             _ => hz,
         };
-        let surface_id = geom.add_surface(Plane {
+        let surface_id = geom.add_plane(Plane {
             origin: face_origin,
             normal: *normal,
         });
@@ -118,7 +119,7 @@ pub fn make_box_into(
             // Create the curve geometry for this edge.
             let start = geom.point(topo.vertices.get(origin).point_id);
             let end = geom.point(topo.vertices.get(dest).point_id);
-            let curve_id = geom.add_curve(LineSegment { start, end });
+            let curve_id = geom.add_line_segment(LineSegment { start, end });
 
             // Allocate edge (may be shared with twin — for M1 we allocate per half-edge pair later).
             let edge_idx = topo.edges.alloc(Edge {

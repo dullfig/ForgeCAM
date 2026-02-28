@@ -97,6 +97,10 @@ pub fn boolean_op(
                                     .push(seg);
                             }
                         }
+                        IntersectionCurve::Circle(_) | IntersectionCurve::Ellipse(_) => {
+                            // Curved intersection trimming deferred to Phase 4.
+                            continue;
+                        }
                     }
                 }
             }

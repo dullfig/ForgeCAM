@@ -1,6 +1,6 @@
 use rustkernel_math::Point3;
 use rustkernel_topology::face_util::face_boundary_points;
-use rustkernel_topology::geom_store::GeomAccess;
+use rustkernel_topology::geom_store::{GeomAccess, SurfaceKind};
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::{FaceIdx, SolidIdx};
 
@@ -47,10 +47,35 @@ impl AABB {
     }
 }
 
-/// Compute the AABB for a face by walking its boundary vertices.
+/// Compute the maximum surface deviation beyond boundary vertices for curved surfaces.
+/// For planes: 0. For cylinders/spheres: radius. Conservative bound.
+fn surface_aabb_inflation(geom: &dyn GeomAccess, surface_id: u32) -> f64 {
+    match geom.surface_kind(surface_id) {
+        SurfaceKind::Plane { .. } => 0.0,
+        SurfaceKind::Cylinder { radius, .. } => radius.abs(),
+        SurfaceKind::Sphere { radius, .. } => radius.abs(),
+        SurfaceKind::Cone { half_angle, .. } => {
+            // Conservative: cone can extend significantly.
+            // Use a fixed bound; face boundary vertices give the real extent.
+            half_angle.abs().tan() * 0.1 // small inflation
+        }
+        SurfaceKind::Torus { minor_radius, .. } => minor_radius.abs(),
+        SurfaceKind::Unknown => 0.0,
+    }
+}
+
+/// Compute the AABB for a face by walking its boundary vertices,
+/// then inflating by the surface curvature deviation.
 pub fn face_aabb(topo: &TopoStore, geom: &dyn GeomAccess, face: FaceIdx) -> AABB {
     let pts = face_boundary_points(topo, geom, face);
-    AABB::from_points(&pts)
+    let base = AABB::from_points(&pts);
+    let surface_id = topo.faces.get(face).surface_id;
+    let inflation = surface_aabb_inflation(geom, surface_id);
+    if inflation > 0.0 {
+        base.expanded(inflation)
+    } else {
+        base
+    }
 }
 
 /// Find all (face_a, face_b) pairs where face_a belongs to solid_a and face_b

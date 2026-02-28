@@ -6,7 +6,7 @@ use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
 use crate::boolean::face_selector::SelectedFaces;
-use crate::geom::{AnalyticalGeomStore, LineSegment, Plane};
+use crate::geom::{AnalyticalGeomStore, LineSegment};
 
 /// Errors during boolean result construction.
 #[derive(Debug)]
@@ -42,6 +42,7 @@ pub fn build_result_solid(
     // Allocate result solid and shell.
     let result_solid = topo.solids.alloc(Solid {
         shell: Idx::from_raw(0),
+        genus: 0,
     });
     let result_shell = topo.shells.alloc(Shell {
         faces: Vec::new(),
@@ -99,18 +100,11 @@ fn deep_copy_face(
     let old_loop_idx = old_face.outer_loop;
 
     // Copy surface (possibly with flipped normal).
-    let old_plane = &geom.surfaces[old_surface_id as usize];
-    let new_surface_id = if flip {
-        geom.add_surface(Plane {
-            origin: old_plane.origin,
-            normal: -old_plane.normal,
-        })
-    } else {
-        geom.add_surface(Plane {
-            origin: old_plane.origin,
-            normal: old_plane.normal,
-        })
-    };
+    let mut cloned_surface = geom.surfaces[old_surface_id as usize].clone();
+    if flip {
+        cloned_surface.flip_normal();
+    }
+    let new_surface_id = geom.add_surface(cloned_surface);
 
     // Collect old half-edge data.
     let start_he = topo.loops.get(old_loop_idx).half_edge;
@@ -159,7 +153,7 @@ fn deep_copy_face(
         let j = (i + 1) % n;
         let start_pt = geom.point(topo.vertices.get(new_verts[i]).point_id);
         let end_pt = geom.point(topo.vertices.get(new_verts[j]).point_id);
-        let curve_id = geom.add_curve(LineSegment {
+        let curve_id = geom.add_line_segment(LineSegment {
             start: start_pt,
             end: end_pt,
         });

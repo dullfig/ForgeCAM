@@ -51,4 +51,7 @@ pub struct Shell {
 
 pub struct Solid {
     pub shell: ShellIdx,
+    /// Genus of the solid (0 for sphere-like, 1 for torus-like).
+    /// Used for Euler validation: V - E + F = 2 - 2g.
+    pub genus: u32,
 }

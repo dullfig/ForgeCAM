@@ -5,6 +5,21 @@ use rustkernel_math::{Point3, Vec3};
 #[derive(Debug, Clone)]
 pub enum SurfaceKind {
     Plane { origin: Point3, normal: Vec3 },
+    Cylinder { origin: Point3, axis: Vec3, radius: f64 },
+    Sphere { center: Point3, radius: f64 },
+    Cone { apex: Point3, axis: Vec3, half_angle: f64 },
+    Torus { center: Point3, axis: Vec3, major_radius: f64, minor_radius: f64 },
+    Unknown,
+}
+
+/// Classification of a curve with its geometric parameters.
+#[derive(Debug, Clone)]
+pub enum CurveKind {
+    Line { origin: Point3, direction: Vec3 },
+    LineSegment { start: Point3, end: Point3 },
+    Circle { center: Point3, axis: Vec3, radius: f64 },
+    Ellipse { center: Point3, axis: Vec3, semi_major: f64, semi_minor: f64, major_dir: Vec3 },
+    CircularArc { center: Point3, axis: Vec3, radius: f64, ref_dir: Vec3, start_angle: f64, end_angle: f64 },
     Unknown,
 }
 
@@ -16,6 +31,12 @@ pub trait GeomAccess {
 
     /// Evaluate a curve at parameter t, returning position.
     fn curve_eval(&self, curve_id: u32, t: f64) -> Point3;
+
+    /// Classify a curve by kind, returning its geometric parameters.
+    fn curve_kind(&self, curve_id: u32) -> CurveKind;
+
+    /// Get the tangent vector of a curve at parameter t.
+    fn curve_tangent(&self, curve_id: u32, t: f64) -> Vec3;
 
     /// Evaluate a surface at parameters (u, v), returning position.
     fn surface_eval(&self, surface_id: u32, u: f64, v: f64) -> Point3;

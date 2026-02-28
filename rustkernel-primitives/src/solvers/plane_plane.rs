@@ -93,7 +93,7 @@ mod tests {
         match result {
             SurfaceSurfaceResult::Curves(curves) => {
                 assert_eq!(curves.len(), 1);
-                let IntersectionCurve::Line(line) = &curves[0];
+                let IntersectionCurve::Line(line) = &curves[0] else { panic!("expected Line") };
                 // Intersection of XY and XZ planes is the X axis.
                 // Direction should be ±X.
                 assert_near(line.direction.y.abs(), 0.0, "dir.y");
@@ -191,7 +191,7 @@ mod tests {
         match result {
             SurfaceSurfaceResult::Curves(curves) => {
                 assert_eq!(curves.len(), 1);
-                let IntersectionCurve::Line(line) = &curves[0];
+                let IntersectionCurve::Line(line) = &curves[0] else { panic!("expected Line") };
                 // Intersection should be along Z axis (both planes contain it).
                 assert_near(line.direction.x.abs(), 0.0, "dir.x");
                 assert_near(line.direction.y.abs(), 0.0, "dir.y");
@@ -219,7 +219,7 @@ mod tests {
         let result = solver.solve(&a, &b).unwrap();
         match result {
             SurfaceSurfaceResult::Curves(curves) => {
-                let IntersectionCurve::Line(line) = &curves[0];
+                let IntersectionCurve::Line(line) = &curves[0] else { panic!("expected Line") };
                 let n1 = Vec3::new(1.0, 1.0, 0.0).normalize();
                 let n2 = Vec3::new(0.0, 1.0, 1.0).normalize();
                 let o1 = Point3::new(1.0, 2.0, 3.0);
@@ -241,11 +241,11 @@ mod tests {
     #[test]
     fn pipeline_dispatches() {
         let mut geom = AnalyticalGeomStore::new();
-        let s0 = geom.add_surface(Plane {
+        let s0 = geom.add_plane(Plane {
             origin: Point3::origin(),
             normal: Vec3::new(0.0, 0.0, 1.0),
         });
-        let s1 = geom.add_surface(Plane {
+        let s1 = geom.add_plane(Plane {
             origin: Point3::origin(),
             normal: Vec3::new(1.0, 0.0, 0.0),
         });
@@ -254,7 +254,7 @@ mod tests {
         match result {
             SurfaceSurfaceResult::Curves(curves) => {
                 assert_eq!(curves.len(), 1);
-                let IntersectionCurve::Line(line) = &curves[0];
+                let IntersectionCurve::Line(line) = &curves[0] else { panic!("expected Line") };
                 // XY ∩ YZ = Y axis
                 assert_near(line.direction.y.abs(), 1.0, "dir.y");
                 assert_near(line.direction.x.abs(), 0.0, "dir.x");
@@ -274,6 +274,12 @@ mod tests {
                 unimplemented!()
             }
             fn curve_eval(&self, _: u32, _: f64) -> Point3 {
+                unimplemented!()
+            }
+            fn curve_kind(&self, _: u32) -> rustkernel_topology::geom_store::CurveKind {
+                rustkernel_topology::geom_store::CurveKind::Unknown
+            }
+            fn curve_tangent(&self, _: u32, _: f64) -> Vec3 {
                 unimplemented!()
             }
             fn surface_eval(&self, _: u32, _: f64, _: f64) -> Point3 {
