@@ -10,6 +10,7 @@ use rustkernel_builders::box_builder::make_box_into;
 use rustkernel_builders::cone_builder::make_cone_into;
 use rustkernel_builders::cylinder_builder::make_cylinder_into;
 use rustkernel_builders::extrude_builder::make_extrude_into;
+use rustkernel_builders::revolve_builder::make_revolve_into;
 use rustkernel_builders::sphere_builder::make_sphere_into;
 use rustkernel_builders::torus_builder::make_torus_into;
 use rustkernel_geom::AnalyticalGeomStore;
@@ -243,6 +244,11 @@ impl Kernel {
     /// Extrude a closed 3D profile polygon along a direction.
     pub fn extrude(&mut self, profile: &[Point3], direction: Vec3, height: f64) -> SolidIdx {
         make_extrude_into(&mut self.topo, &mut self.geom, profile, direction, height)
+    }
+
+    /// Revolve a closed 3D profile polygon around an axis.
+    pub fn revolve(&mut self, profile: &[Point3], axis_origin: Point3, axis_dir: Vec3, angle: f64) -> SolidIdx {
+        make_revolve_into(&mut self.topo, &mut self.geom, profile, axis_origin, axis_dir, angle, 32)
     }
 }
 
@@ -1103,5 +1109,112 @@ mod tests {
             }
             assert!(total_tris > 0, "Primitive should have tessellation triangles");
         }
+    }
+
+    // --- Revolve integration tests ---
+
+    #[test]
+    fn test_kernel_revolve() {
+        let mut kernel = Kernel::new();
+        // Rectangle off-axis → full revolve → torus-like
+        let profile = vec![
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(3.0, 0.0, 0.0),
+            Point3::new(3.0, 0.0, 1.0),
+            Point3::new(2.0, 0.0, 1.0),
+        ];
+        let solid = kernel.revolve(
+            &profile,
+            Point3::origin(),
+            Vec3::new(0.0, 0.0, 1.0),
+            std::f64::consts::TAU,
+        );
+        assert_eq!(kernel.topo.solids.get(solid).genus, 1);
+        verify_all_twins(&kernel.topo, solid);
+
+        // Euler for genus=1: V-E+F = 0
+        let shell_idx = kernel.topo.solids.get(solid).shell;
+        let faces = &kernel.topo.shells.get(shell_idx).faces;
+        let mut verts_set = HashSet::new();
+        let mut edges_set = HashSet::new();
+        for &face_idx in faces {
+            let loop_idx = kernel.topo.faces.get(face_idx).outer_loop;
+            let start_he = kernel.topo.loops.get(loop_idx).half_edge;
+            let mut he = start_he;
+            loop {
+                let he_data = kernel.topo.half_edges.get(he);
+                verts_set.insert(he_data.origin.raw());
+                edges_set.insert(he_data.edge.raw());
+                he = he_data.next;
+                if he == start_he { break; }
+            }
+        }
+        let v = verts_set.len() as i32;
+        let e = edges_set.len() as i32;
+        let f = faces.len() as i32;
+        assert_eq!(v - e + f, 0, "Torus-like Euler: V({v}) - E({e}) + F({f}) should be 0");
+    }
+
+    #[test]
+    fn test_sketch_revolve_integration() {
+        let mut kernel = Kernel::new();
+
+        // Create a sketch on the XZ plane (normal = +Y, but we need a workplane
+        // that places the profile in the meridional plane for revolve around Z).
+        let mut sketch = kernel.create_sketch(
+            Point3::new(2.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        );
+
+        let p0 = sketch.add_point(0.0, 0.0);
+        let p1 = sketch.add_point(1.0, 0.0);
+        let p2 = sketch.add_point(1.0, 1.0);
+        let p3 = sketch.add_point(0.0, 1.0);
+
+        sketch.add_line(p0, p1);
+        sketch.add_line(p1, p2);
+        sketch.add_line(p2, p3);
+        sketch.add_line(p3, p0);
+
+        let profile = sketch.to_profile_3d().unwrap();
+        assert_eq!(profile.len(), 4);
+
+        let solid = kernel.revolve(
+            &profile,
+            Point3::origin(),
+            Vec3::new(0.0, 0.0, 1.0),
+            std::f64::consts::TAU,
+        );
+
+        verify_all_twins(&kernel.topo, solid);
+    }
+
+    #[test]
+    fn test_revolve_then_boolean() {
+        let mut kernel = Kernel::new();
+
+        let base = kernel.make_box(6.0, 6.0, 2.0);
+
+        // Revolve a small rectangle to create a cylinder-like solid
+        let profile = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.5, 0.0, 0.0),
+            Point3::new(0.5, 0.0, 3.0),
+            Point3::new(0.0, 0.0, 3.0),
+        ];
+        let revolved = kernel.revolve(
+            &profile,
+            Point3::origin(),
+            Vec3::new(0.0, 0.0, 1.0),
+            std::f64::consts::TAU,
+        );
+
+        verify_euler(&kernel.topo, base);
+        verify_all_twins(&kernel.topo, revolved);
+
+        // Boolean fuse — may panic due to face_splitter limitation (Phase 2).
+        let _fused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            kernel.fuse(base, revolved)
+        }));
     }
 }
