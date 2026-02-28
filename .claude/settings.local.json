@@ -39,7 +39,9 @@
       "WebFetch(domain:dimforge.com)",
       "WebFetch(domain:metrics.bevy.org)",
       "WebFetch(domain:bevy-cheatbook.github.io)",
-      "WebFetch(domain:sotrh.github.io)"
+      "WebFetch(domain:sotrh.github.io)",
+      "Bash(xargs grep:*)",
+      "Bash(cargo test:*)"
     ]
   }
 }

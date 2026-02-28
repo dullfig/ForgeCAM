@@ -13,7 +13,20 @@ use crate::geom::{AnalyticalGeomStore, LineSegment, Plane};
 pub fn make_box(dx: f64, dy: f64, dz: f64) -> (TopoStore, AnalyticalGeomStore, SolidIdx) {
     let mut topo = TopoStore::new();
     let mut geom = AnalyticalGeomStore::new();
+    let solid_idx = make_box_into(&mut topo, &mut geom, Point3::origin(), dx, dy, dz);
+    (topo, geom, solid_idx)
+}
 
+/// Build an axis-aligned box with dimensions (dx, dy, dz) centered at `center`,
+/// into existing topology and geometry stores.
+pub fn make_box_into(
+    topo: &mut TopoStore,
+    geom: &mut AnalyticalGeomStore,
+    center: Point3,
+    dx: f64,
+    dy: f64,
+    dz: f64,
+) -> SolidIdx {
     let hx = dx / 2.0;
     let hy = dy / 2.0;
     let hz = dz / 2.0;
@@ -23,15 +36,18 @@ pub fn make_box(dx: f64, dy: f64, dz: f64) -> (TopoStore, AnalyticalGeomStore, S
     //   1: (+hx, -hy, -hz)   5: (+hx, -hy, +hz)
     //   2: (+hx, +hy, -hz)   6: (+hx, +hy, +hz)
     //   3: (-hx, +hy, -hz)   7: (-hx, +hy, +hz)
+    let cx = center.x;
+    let cy = center.y;
+    let cz = center.z;
     let corners = [
-        Point3::new(-hx, -hy, -hz), // 0
-        Point3::new(hx, -hy, -hz),  // 1
-        Point3::new(hx, hy, -hz),   // 2
-        Point3::new(-hx, hy, -hz),  // 3
-        Point3::new(-hx, -hy, hz),  // 4
-        Point3::new(hx, -hy, hz),   // 5
-        Point3::new(hx, hy, hz),    // 6
-        Point3::new(-hx, hy, hz),   // 7
+        Point3::new(cx - hx, cy - hy, cz - hz), // 0
+        Point3::new(cx + hx, cy - hy, cz - hz), // 1
+        Point3::new(cx + hx, cy + hy, cz - hz), // 2
+        Point3::new(cx - hx, cy + hy, cz - hz), // 3
+        Point3::new(cx - hx, cy - hy, cz + hz), // 4
+        Point3::new(cx + hx, cy - hy, cz + hz), // 5
+        Point3::new(cx + hx, cy + hy, cz + hz), // 6
+        Point3::new(cx - hx, cy + hy, cz + hz), // 7
     ];
 
     // Register points in geometry store and create topology vertices.
@@ -68,8 +84,14 @@ pub fn make_box(dx: f64, dy: f64, dz: f64) -> (TopoStore, AnalyticalGeomStore, S
     let mut he_map: HashMap<(u32, u32), HalfEdgeIdx> = HashMap::new();
 
     for (verts, normal) in &face_defs {
+        // Plane origin is the center of the face (center offset along normal direction).
+        let face_origin = center + (*normal) * match normal {
+            n if n.x.abs() > 0.5 => hx,
+            n if n.y.abs() > 0.5 => hy,
+            _ => hz,
+        };
         let surface_id = geom.add_surface(Plane {
-            origin: Point3::origin(),
+            origin: face_origin,
             normal: *normal,
         });
 
@@ -147,7 +169,7 @@ pub fn make_box(dx: f64, dy: f64, dz: f64) -> (TopoStore, AnalyticalGeomStore, S
         }
     }
 
-    (topo, geom, solid_idx)
+    solid_idx
 }
 
 #[cfg(test)]
