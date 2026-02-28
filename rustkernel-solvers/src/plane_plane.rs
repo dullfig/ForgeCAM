@@ -66,8 +66,8 @@ impl SurfaceSurfaceSolver for PlanePlaneSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geom::{AnalyticalGeomStore, Plane};
-    use crate::solvers::default_pipeline;
+    use rustkernel_geom::{AnalyticalGeomStore, Plane};
+    use crate::default_pipeline;
     use rustkernel_math::Vec3;
     use rustkernel_topology::geom_store::GeomAccess;
 

@@ -335,56 +335,63 @@ fn compute_centroid(points: &[Point3]) -> Point3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::Kernel;
+    use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_geom::AnalyticalGeomStore;
+    use rustkernel_topology::store::TopoStore;
 
     #[test]
     fn test_point_inside_box() {
-        let mut k = Kernel::new();
-        let solid = k.make_box(2.0, 2.0, 2.0);
-        let result = classify_point_vs_solid(&Point3::new(0.0, 0.0, 0.0), &k.topo, &k.geom, solid);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let result = classify_point_vs_solid(&Point3::new(0.0, 0.0, 0.0), &topo, &geom, solid);
         assert_eq!(result, PointVsSolid::Inside);
     }
 
     #[test]
     fn test_point_outside_box() {
-        let mut k = Kernel::new();
-        let solid = k.make_box(2.0, 2.0, 2.0);
-        let result = classify_point_vs_solid(&Point3::new(10.0, 0.0, 0.0), &k.topo, &k.geom, solid);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let result = classify_point_vs_solid(&Point3::new(10.0, 0.0, 0.0), &topo, &geom, solid);
         assert_eq!(result, PointVsSolid::Outside);
     }
 
     #[test]
     fn test_point_inside_offset_box() {
-        let mut k = Kernel::new();
-        let solid = k.make_box_at([5.0, 5.0, 5.0], 2.0, 2.0, 2.0);
-        let result = classify_point_vs_solid(&Point3::new(5.0, 5.0, 5.0), &k.topo, &k.geom, solid);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::new(5.0, 5.0, 5.0), 2.0, 2.0, 2.0);
+        let result = classify_point_vs_solid(&Point3::new(5.0, 5.0, 5.0), &topo, &geom, solid);
         assert_eq!(result, PointVsSolid::Inside);
     }
 
     #[test]
     fn test_classify_face_outside() {
-        let mut k = Kernel::new();
-        let a = k.make_box(2.0, 2.0, 2.0);
-        let b = k.make_box_at([5.0, 0.0, 0.0], 2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(5.0, 0.0, 0.0), 2.0, 2.0, 2.0);
 
         // All faces of A should be outside B (no overlap).
-        let shell_a = k.topo.solids.get(a).shell;
-        for &face in &k.topo.shells.get(shell_a).faces.clone() {
-            let pos = classify_face(&k.topo, &k.geom, face, b);
+        let shell_a = topo.solids.get(a).shell;
+        for &face in &topo.shells.get(shell_a).faces.clone() {
+            let pos = classify_face(&topo, &geom, face, b);
             assert_eq!(pos, FacePosition::Outside, "Face should be outside");
         }
     }
 
     #[test]
     fn test_classify_face_inside() {
-        let mut k = Kernel::new();
-        let big = k.make_box(10.0, 10.0, 10.0);
-        let small = k.make_box(2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let big = make_box_into(&mut topo, &mut geom, Point3::origin(), 10.0, 10.0, 10.0);
+        let small = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
 
         // All faces of small should be inside big.
-        let shell_small = k.topo.solids.get(small).shell;
-        for &face in &k.topo.shells.get(shell_small).faces.clone() {
-            let pos = classify_face(&k.topo, &k.geom, face, big);
+        let shell_small = topo.solids.get(small).shell;
+        for &face in &topo.shells.get(shell_small).faces.clone() {
+            let pos = classify_face(&topo, &geom, face, big);
             assert_eq!(pos, FacePosition::Inside, "Small box face should be inside big box");
         }
     }

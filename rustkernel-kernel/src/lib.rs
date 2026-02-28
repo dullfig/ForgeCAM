@@ -6,13 +6,13 @@ use rustkernel_topology::intersection::IntersectionPipeline;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::box_builder::make_box_into;
-use crate::cone_builder::make_cone_into;
-use crate::cylinder_builder::make_cylinder_into;
-use crate::geom::AnalyticalGeomStore;
-use crate::solvers::default_pipeline;
-use crate::sphere_builder::make_sphere_into;
-use crate::torus_builder::make_torus_into;
+use rustkernel_builders::box_builder::make_box_into;
+use rustkernel_builders::cone_builder::make_cone_into;
+use rustkernel_builders::cylinder_builder::make_cylinder_into;
+use rustkernel_builders::sphere_builder::make_sphere_into;
+use rustkernel_builders::torus_builder::make_torus_into;
+use rustkernel_geom::AnalyticalGeomStore;
+use rustkernel_solvers::default_pipeline;
 
 /// Central kernel holding all topology, geometry, and the intersection pipeline.
 pub struct Kernel {
@@ -145,14 +145,14 @@ impl Kernel {
         &mut self,
         a: SolidIdx,
         b: SolidIdx,
-    ) -> Result<SolidIdx, crate::boolean::ops::BooleanError> {
-        crate::boolean::ops::boolean_op(
+    ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
+        rustkernel_boolean::ops::boolean_op(
             &mut self.topo,
             &mut self.geom,
             &self.pipeline,
             a,
             b,
-            crate::boolean::face_selector::BooleanOp::Fuse,
+            rustkernel_boolean::face_selector::BooleanOp::Fuse,
         )
     }
 
@@ -161,14 +161,14 @@ impl Kernel {
         &mut self,
         a: SolidIdx,
         b: SolidIdx,
-    ) -> Result<SolidIdx, crate::boolean::ops::BooleanError> {
-        crate::boolean::ops::boolean_op(
+    ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
+        rustkernel_boolean::ops::boolean_op(
             &mut self.topo,
             &mut self.geom,
             &self.pipeline,
             a,
             b,
-            crate::boolean::face_selector::BooleanOp::Cut,
+            rustkernel_boolean::face_selector::BooleanOp::Cut,
         )
     }
 
@@ -177,14 +177,14 @@ impl Kernel {
         &mut self,
         a: SolidIdx,
         b: SolidIdx,
-    ) -> Result<SolidIdx, crate::boolean::ops::BooleanError> {
-        crate::boolean::ops::boolean_op(
+    ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
+        rustkernel_boolean::ops::boolean_op(
             &mut self.topo,
             &mut self.geom,
             &self.pipeline,
             a,
             b,
-            crate::boolean::face_selector::BooleanOp::Common,
+            rustkernel_boolean::face_selector::BooleanOp::Common,
         )
     }
 
@@ -192,9 +192,9 @@ impl Kernel {
     pub fn fuse_many(
         &mut self,
         solids: &[SolidIdx],
-    ) -> Result<SolidIdx, crate::boolean::ops::BooleanError> {
+    ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
         if solids.is_empty() {
-            return Err(crate::boolean::ops::BooleanError::DegenerateInput(
+            return Err(rustkernel_boolean::ops::BooleanError::DegenerateInput(
                 "empty list".into(),
             ));
         }
@@ -211,8 +211,8 @@ impl Kernel {
         solid: SolidIdx,
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
-    ) -> Result<Vec<LoopIdx>, crate::boolean::ops::BooleanError> {
-        crate::boolean::section::section_solid(
+    ) -> Result<Vec<LoopIdx>, rustkernel_boolean::ops::BooleanError> {
+        rustkernel_boolean::section::section_solid(
             &mut self.topo,
             &mut self.geom,
             &self.pipeline,

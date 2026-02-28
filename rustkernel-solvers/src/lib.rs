@@ -6,11 +6,11 @@ pub mod plane_torus;
 
 use rustkernel_topology::intersection::IntersectionPipeline;
 
-use crate::solvers::plane_cone::PlaneConeSolver;
-use crate::solvers::plane_cylinder::PlaneCylinderSolver;
-use crate::solvers::plane_plane::PlanePlaneSolver;
-use crate::solvers::plane_sphere::PlaneSphereSolver;
-use crate::solvers::plane_torus::PlaneTorusSolver;
+use crate::plane_cone::PlaneConeSolver;
+use crate::plane_cylinder::PlaneCylinderSolver;
+use crate::plane_plane::PlanePlaneSolver;
+use crate::plane_sphere::PlaneSphereSolver;
+use crate::plane_torus::PlaneTorusSolver;
 
 /// Create an intersection pipeline pre-loaded with all analytical solvers.
 pub fn default_pipeline() -> IntersectionPipeline {

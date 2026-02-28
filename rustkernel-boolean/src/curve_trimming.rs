@@ -102,16 +102,19 @@ fn clip_line_to_face(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::Kernel;
+    use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_geom::AnalyticalGeomStore;
     use rustkernel_math::Vec3;
     use rustkernel_topology::intersection::IntersectionLine;
+    use rustkernel_topology::store::TopoStore;
 
     #[test]
     fn test_trim_overlapping_box_faces() {
-        let mut k = Kernel::new();
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
         // Two boxes overlapping in x: box_a centered at origin, box_b at (1,0,0), both 2x2x2.
-        let a = k.make_box(2.0, 2.0, 2.0);
-        let b = k.make_box_at([1.0, 0.0, 0.0], 2.0, 2.0, 2.0);
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(1.0, 0.0, 0.0), 2.0, 2.0, 2.0);
 
         // The right face (+X) of box_a is at x=1, facing +X.
         // The left face (-X) of box_b is at x=0, facing -X.
@@ -125,26 +128,26 @@ mod tests {
         };
 
         // Find the top face of A (normal +Z) and the front face of B (normal -Y).
-        let shell_a = k.topo.solids.get(a).shell;
-        let shell_b = k.topo.solids.get(b).shell;
+        let shell_a = topo.solids.get(a).shell;
+        let shell_b = topo.solids.get(b).shell;
 
-        let top_a = k.topo.shells.get(shell_a).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let top_a = topo.shells.get(shell_a).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let front_b = k.topo.shells.get(shell_b).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let front_b = topo.shells.get(shell_b).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.y < -0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let segments = trim_intersection_line(&line, &k.topo, &k.geom, top_a, front_b);
+        let segments = trim_intersection_line(&line, &topo, &geom, top_a, front_b);
         // The line y=-1, z=1 in the +X direction:
         // - In top face of A (z=1 plane, x in [-1,1], y in [-1,1]): y=-1 is on boundary.
         //   Clipping gives x in [-1, 1], so t in [-1, 1].
@@ -160,10 +163,11 @@ mod tests {
 
     #[test]
     fn test_trim_interior_crossing() {
-        let mut k = Kernel::new();
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
         // Box A centered at origin (2x2x2), box B at (1, 0, 0) (2x2x2).
-        let a = k.make_box(2.0, 2.0, 2.0);
-        let b = k.make_box_at([1.0, 0.0, 0.0], 2.0, 2.0, 2.0);
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(1.0, 0.0, 0.0), 2.0, 2.0, 2.0);
 
         // The right face of A (+X, at x=1) and top face of B (+Z, at z=1).
         // These two planes intersect in a line: x=1, z=1, direction Y.
@@ -172,26 +176,26 @@ mod tests {
             direction: Vec3::new(0.0, 1.0, 0.0),
         };
 
-        let shell_a = k.topo.solids.get(a).shell;
-        let shell_b = k.topo.solids.get(b).shell;
+        let shell_a = topo.solids.get(a).shell;
+        let shell_b = topo.solids.get(b).shell;
 
-        let right_a = k.topo.shells.get(shell_a).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let right_a = topo.shells.get(shell_a).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.x > 0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let top_b = k.topo.shells.get(shell_b).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let top_b = topo.shells.get(shell_b).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let segments = trim_intersection_line(&line, &k.topo, &k.geom, right_a, top_b);
+        let segments = trim_intersection_line(&line, &topo, &geom, right_a, top_b);
 
         // Right face of A: x=1 plane, y in [-1,1], z in [-1,1].
         // The line x=1, z=1, dir Y: z=1 is on the boundary of this face.
@@ -200,10 +204,11 @@ mod tests {
 
     #[test]
     fn test_trim_clear_interior() {
-        let mut k = Kernel::new();
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
         // Box A centered at origin (2x2x2), box B at (1, 0, 0) (2x2x2).
-        let a = k.make_box(2.0, 2.0, 2.0);
-        let b = k.make_box_at([1.0, 0.0, 0.0], 2.0, 2.0, 2.0);
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(1.0, 0.0, 0.0), 2.0, 2.0, 2.0);
 
         // Top face of A (+Z at z=1) and right face of B (+X at x=2).
         // These planes: z=1 (normal +Z) and x=2 (normal +X).
@@ -213,26 +218,26 @@ mod tests {
             direction: Vec3::new(0.0, 1.0, 0.0),
         };
 
-        let shell_a = k.topo.solids.get(a).shell;
-        let shell_b = k.topo.solids.get(b).shell;
+        let shell_a = topo.solids.get(a).shell;
+        let shell_b = topo.solids.get(b).shell;
 
-        let top_a = k.topo.shells.get(shell_a).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let top_a = topo.shells.get(shell_a).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let right_b = k.topo.shells.get(shell_b).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let right_b = topo.shells.get(shell_b).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.x > 0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let segments = trim_intersection_line(&line, &k.topo, &k.geom, top_a, right_b);
+        let segments = trim_intersection_line(&line, &topo, &geom, top_a, right_b);
 
         // Top face of A: z=1 plane, x in [-1,1], y in [-1,1].
         // The line at x=2 is outside the face A boundary (x range [-1,1]).
@@ -242,9 +247,10 @@ mod tests {
 
     #[test]
     fn test_trim_through_interior() {
-        let mut k = Kernel::new();
-        let a = k.make_box(2.0, 2.0, 2.0);
-        let b = k.make_box_at([1.0, 0.0, 0.0], 2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(1.0, 0.0, 0.0), 2.0, 2.0, 2.0);
 
         // Top face of A (+Z at z=1) and left face of B (-X at x=0).
         // Intersection: x=0, z=1, direction Y.
@@ -253,26 +259,26 @@ mod tests {
             direction: Vec3::new(0.0, 1.0, 0.0),
         };
 
-        let shell_a = k.topo.solids.get(a).shell;
-        let shell_b = k.topo.solids.get(b).shell;
+        let shell_a = topo.solids.get(a).shell;
+        let shell_b = topo.solids.get(b).shell;
 
-        let top_a = k.topo.shells.get(shell_a).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let top_a = topo.shells.get(shell_a).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let left_b = k.topo.shells.get(shell_b).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let left_b = topo.shells.get(shell_b).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.x < -0.5,
                 _ => false,
             }
         }).copied().unwrap();
 
-        let segments = trim_intersection_line(&line, &k.topo, &k.geom, top_a, left_b);
+        let segments = trim_intersection_line(&line, &topo, &geom, top_a, left_b);
 
         // Top face of A: z=1, x in [-1,1], y in [-1,1]. Line at x=0 passes through interior.
         // Clipping to face A: y in [-1, 1], so t in [-1, 1].

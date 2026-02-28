@@ -3,6 +3,10 @@ resolver = "2"
 members = [
     "rustkernel-math",
     "rustkernel-topology",
-    "rustkernel-primitives",
+    "rustkernel-geom",
+    "rustkernel-solvers",
+    "rustkernel-builders",
+    "rustkernel-boolean",
+    "rustkernel-kernel",
     "rustkernel-viewer",
 ]

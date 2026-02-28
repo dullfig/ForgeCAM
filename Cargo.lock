@@ -915,6 +915,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustkernel-boolean"
+version = "0.1.0"
+dependencies = [
+ "rustkernel-builders",
+ "rustkernel-geom",
+ "rustkernel-math",
+ "rustkernel-solvers",
+ "rustkernel-topology",
+]
+
+[[package]]
+name = "rustkernel-builders"
+version = "0.1.0"
+dependencies = [
+ "rustkernel-geom",
+ "rustkernel-math",
+ "rustkernel-topology",
+]
+
+[[package]]
+name = "rustkernel-geom"
+version = "0.1.0"
+dependencies = [
+ "rustkernel-math",
+ "rustkernel-topology",
+]
+
+[[package]]
+name = "rustkernel-kernel"
+version = "0.1.0"
+dependencies = [
+ "rustkernel-boolean",
+ "rustkernel-builders",
+ "rustkernel-geom",
+ "rustkernel-math",
+ "rustkernel-solvers",
+ "rustkernel-topology",
+]
+
+[[package]]
 name = "rustkernel-math"
 version = "0.1.0"
 dependencies = [
@@ -922,9 +962,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustkernel-primitives"
+name = "rustkernel-solvers"
 version = "0.1.0"
 dependencies = [
+ "rustkernel-geom",
  "rustkernel-math",
  "rustkernel-topology",
 ]
@@ -940,8 +981,9 @@ dependencies = [
 name = "rustkernel-viewer"
 version = "0.1.0"
 dependencies = [
+ "rustkernel-builders",
+ "rustkernel-geom",
  "rustkernel-math",
- "rustkernel-primitives",
  "rustkernel-topology",
  "three-d",
 ]

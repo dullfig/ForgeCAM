@@ -5,7 +5,7 @@ use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::geom::{AnalyticalGeomStore, LineSegment, SphereSurface, SurfaceDef};
+use rustkernel_geom::{AnalyticalGeomStore, LineSegment, SphereSurface, SurfaceDef};
 
 /// Build a sphere with given center and radius using N longitude × M latitude grid.
 ///

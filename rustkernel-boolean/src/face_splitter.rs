@@ -4,9 +4,9 @@ use rustkernel_topology::geom_store::GeomAccess;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::boolean::curve_trimming::TrimmedSegment;
-use crate::geom::AnalyticalGeomStore;
-use crate::geom::LineSegment;
+use crate::curve_trimming::TrimmedSegment;
+use rustkernel_geom::AnalyticalGeomStore;
+use rustkernel_geom::LineSegment;
 
 /// Result of splitting a face along an intersection segment.
 pub struct SplitResult {
@@ -224,21 +224,24 @@ fn build_face_from_verts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::Kernel;
+    use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_geom::AnalyticalGeomStore;
     use rustkernel_math::Vec3;
     use rustkernel_topology::face_util::face_boundary_points;
     use rustkernel_topology::geom_store::{GeomAccess, SurfaceKind};
+    use rustkernel_topology::store::TopoStore;
 
     #[test]
     fn test_split_square_face() {
-        let mut k = Kernel::new();
-        let solid = k.make_box(2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
 
         // Find the top face (+Z at z=1).
-        let shell = k.topo.solids.get(solid).shell;
-        let top_face = k.topo.shells.get(shell).faces.iter().find(|&&f| {
-            let sid = k.topo.faces.get(f).surface_id;
-            match k.geom.surface_kind(sid) {
+        let shell = topo.solids.get(solid).shell;
+        let top_face = topo.shells.get(shell).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
                 SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
                 _ => false,
             }
@@ -254,11 +257,11 @@ mod tests {
             end_point: Point3::new(1.0, 0.0, 1.0),
         };
 
-        let result = split_face_along_segment(&mut k.topo, &mut k.geom, top_face, &segment);
+        let result = split_face_along_segment(&mut topo, &mut geom, top_face, &segment);
 
         // Each sub-face should have 4 vertices (rectangles).
-        let pts_a = face_boundary_points(&k.topo, &k.geom, result.face_a);
-        let pts_b = face_boundary_points(&k.topo, &k.geom, result.face_b);
+        let pts_a = face_boundary_points(&topo, &geom, result.face_a);
+        let pts_b = face_boundary_points(&topo, &geom, result.face_b);
 
         assert_eq!(pts_a.len(), 4, "Sub-face A should have 4 vertices");
         assert_eq!(pts_b.len(), 4, "Sub-face B should have 4 vertices");

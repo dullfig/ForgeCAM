@@ -1,6 +1,6 @@
 use rustkernel_topology::topo::FaceIdx;
 
-use crate::boolean::face_classifier::FacePosition;
+use crate::face_classifier::FacePosition;
 
 /// Boolean operation type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

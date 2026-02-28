@@ -5,7 +5,7 @@ use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::geom::{
+use rustkernel_geom::{
     AnalyticalGeomStore, ConeSurface, Plane, SurfaceDef,
 };
 

@@ -6,7 +6,7 @@ use rustkernel_topology::geom_store::GeomAccess;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::geom::{AnalyticalGeomStore, LineSegment, Plane};
+use rustkernel_geom::{AnalyticalGeomStore, LineSegment, Plane};
 
 /// Build an axis-aligned box with dimensions (dx, dy, dz) centered at origin.
 /// Returns the TopoStore, GeomStore, and the SolidIdx of the created box.

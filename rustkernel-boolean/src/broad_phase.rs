@@ -116,36 +116,41 @@ pub fn find_interfering_face_pairs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::Kernel;
+    use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_geom::AnalyticalGeomStore;
+    use rustkernel_topology::store::TopoStore;
 
     #[test]
     fn test_overlapping_boxes_have_pairs() {
-        let mut k = Kernel::new();
-        let a = k.make_box(2.0, 2.0, 2.0);
-        let b = k.make_box_at([1.0, 0.0, 0.0], 2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(1.0, 0.0, 0.0), 2.0, 2.0, 2.0);
 
-        let pairs = find_interfering_face_pairs(&k.topo, &k.geom, a, b, 1e-8);
+        let pairs = find_interfering_face_pairs(&topo, &geom, a, b, 1e-8);
         assert!(!pairs.is_empty(), "Overlapping boxes should have interfering face pairs");
     }
 
     #[test]
     fn test_separated_boxes_no_pairs() {
-        let mut k = Kernel::new();
-        let a = k.make_box(1.0, 1.0, 1.0);
-        let b = k.make_box_at([10.0, 0.0, 0.0], 1.0, 1.0, 1.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 1.0, 1.0, 1.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(10.0, 0.0, 0.0), 1.0, 1.0, 1.0);
 
-        let pairs = find_interfering_face_pairs(&k.topo, &k.geom, a, b, 1e-8);
+        let pairs = find_interfering_face_pairs(&topo, &geom, a, b, 1e-8);
         assert!(pairs.is_empty(), "Separated boxes should have no pairs");
     }
 
     #[test]
     fn test_touching_boxes_have_pairs() {
-        let mut k = Kernel::new();
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
         // Box A: x in [-0.5, 0.5], Box B: x in [0.5, 1.5] — touching at x=0.5
-        let a = k.make_box(1.0, 1.0, 1.0);
-        let b = k.make_box_at([1.0, 0.0, 0.0], 1.0, 1.0, 1.0);
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 1.0, 1.0, 1.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(1.0, 0.0, 0.0), 1.0, 1.0, 1.0);
 
-        let pairs = find_interfering_face_pairs(&k.topo, &k.geom, a, b, 1e-8);
+        let pairs = find_interfering_face_pairs(&topo, &geom, a, b, 1e-8);
         // The two faces at x=0.5 should overlap (with tolerance), plus possibly edge-touching faces.
         assert!(!pairs.is_empty(), "Touching boxes should have pairs (with tolerance)");
     }

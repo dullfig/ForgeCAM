@@ -1,8 +1,9 @@
 [package]
-name = "rustkernel-primitives"
+name = "rustkernel-solvers"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 rustkernel-math = { path = "../rustkernel-math" }
 rustkernel-topology = { path = "../rustkernel-topology" }
+rustkernel-geom = { path = "../rustkernel-geom" }

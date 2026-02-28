@@ -8,9 +8,9 @@ use rustkernel_topology::intersection::{
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::boolean::ops::BooleanError;
-use crate::geom::AnalyticalGeomStore;
-use crate::geom::LineSegment;
+use crate::ops::BooleanError;
+use rustkernel_geom::AnalyticalGeomStore;
+use rustkernel_geom::LineSegment;
 use rustkernel_math::polygon2d::Polygon2D;
 
 /// Intersect a solid with a plane, returning the intersection as one or more
@@ -27,7 +27,7 @@ pub fn section_solid(
     let faces: Vec<FaceIdx> = topo.shells.get(shell_idx).faces.clone();
 
     // Add the section plane to the geom store once upfront.
-    let section_sid = geom.add_plane(crate::geom::Plane {
+    let section_sid = geom.add_plane(rustkernel_geom::Plane {
         origin: plane_origin,
         normal: plane_normal.normalize(),
     });
@@ -259,18 +259,23 @@ fn chain_segments_into_loops(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::Kernel;
+    use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_geom::AnalyticalGeomStore;
+    use rustkernel_solvers::default_pipeline;
+    use rustkernel_topology::store::TopoStore;
 
     #[test]
     fn test_section_box_through_middle() {
-        let mut k = Kernel::new();
-        let solid = k.make_box(2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let pipeline = default_pipeline();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
 
         // Section at z=0 (through the middle of the box).
         let loops = section_solid(
-            &mut k.topo,
-            &mut k.geom,
-            &k.pipeline,
+            &mut topo,
+            &mut geom,
+            &pipeline,
             solid,
             Point3::new(0.0, 0.0, 0.0),
             Vec3::new(0.0, 0.0, 1.0),
@@ -281,12 +286,12 @@ mod tests {
 
         // Count edges in the loop.
         let loop_idx = loops[0];
-        let start_he = k.topo.loops.get(loop_idx).half_edge;
+        let start_he = topo.loops.get(loop_idx).half_edge;
         let mut count = 0;
         let mut he = start_he;
         loop {
             count += 1;
-            he = k.topo.half_edges.get(he).next;
+            he = topo.half_edges.get(he).next;
             if he == start_he {
                 break;
             }
@@ -296,14 +301,16 @@ mod tests {
 
     #[test]
     fn test_section_box_miss() {
-        let mut k = Kernel::new();
-        let solid = k.make_box(2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let pipeline = default_pipeline();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
 
         // Section at z=5 (above the box).
         let loops = section_solid(
-            &mut k.topo,
-            &mut k.geom,
-            &k.pipeline,
+            &mut topo,
+            &mut geom,
+            &pipeline,
             solid,
             Point3::new(0.0, 0.0, 5.0),
             Vec3::new(0.0, 0.0, 1.0),

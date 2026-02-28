@@ -1,7 +1,7 @@
 mod convert;
 
 use convert::merge_shell_meshes;
-use rustkernel_primitives::box_builder::make_box;
+use rustkernel_builders::box_builder::make_box;
 use rustkernel_topology::tessellate::tessellate_shell;
 use three_d::*;
 

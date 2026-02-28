@@ -5,7 +5,7 @@ use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::geom::{AnalyticalGeomStore, SurfaceDef, TorusSurface};
+use rustkernel_geom::{AnalyticalGeomStore, SurfaceDef, TorusSurface};
 
 /// Build a torus with given center, major radius R, minor radius r.
 /// Axis is +Z. N × M quad grid on two periodic parameters.

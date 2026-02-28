@@ -1,5 +1,5 @@
 [package]
-name = "rustkernel-viewer"
+name = "rustkernel-builders"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,5 +7,3 @@ edition = "2021"
 rustkernel-math = { path = "../rustkernel-math" }
 rustkernel-topology = { path = "../rustkernel-topology" }
 rustkernel-geom = { path = "../rustkernel-geom" }
-rustkernel-builders = { path = "../rustkernel-builders" }
-three-d = "0.18"

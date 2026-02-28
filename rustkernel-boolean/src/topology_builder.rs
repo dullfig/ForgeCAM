@@ -5,8 +5,8 @@ use rustkernel_topology::geom_store::GeomAccess;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 
-use crate::boolean::face_selector::SelectedFaces;
-use crate::geom::{AnalyticalGeomStore, LineSegment};
+use crate::face_selector::SelectedFaces;
+use rustkernel_geom::{AnalyticalGeomStore, LineSegment};
 
 /// Errors during boolean result construction.
 #[derive(Debug)]
@@ -346,16 +346,21 @@ fn validate(topo: &TopoStore, faces: &[FaceIdx]) -> Result<(), BuildError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::Kernel;
+    use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_geom::AnalyticalGeomStore;
+    use rustkernel_math::Point3;
+    use rustkernel_topology::store::TopoStore;
+
     #[test]
     fn test_sew_cube_from_standalone_faces() {
         // Create a box, then deep-copy all 6 faces as standalone faces
         // and reconstruct via build_result_solid.
-        let mut k = Kernel::new();
-        let solid = k.make_box(2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
 
-        let shell_idx = k.topo.solids.get(solid).shell;
-        let faces: Vec<FaceIdx> = k.topo.shells.get(shell_idx).faces.clone();
+        let shell_idx = topo.solids.get(solid).shell;
+        let faces: Vec<FaceIdx> = topo.shells.get(shell_idx).faces.clone();
 
         let selected = SelectedFaces {
             keep_from_a: faces,
@@ -363,7 +368,7 @@ mod tests {
             flip_from_b: Vec::new(),
         };
 
-        let result = build_result_solid(&mut k.topo, &mut k.geom, &selected);
+        let result = build_result_solid(&mut topo, &mut geom, &selected);
         assert!(result.is_ok(), "Should build valid solid: {:?}", result.err());
     }
 }

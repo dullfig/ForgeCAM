@@ -6,13 +6,13 @@ use rustkernel_topology::intersection::{
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::{FaceIdx, SolidIdx};
 
-use crate::boolean::broad_phase::find_interfering_face_pairs;
-use crate::boolean::curve_trimming::{trim_intersection_line, TrimmedSegment};
-use crate::boolean::face_classifier::{classify_face, FacePosition};
-use crate::boolean::face_selector::{select_faces, BooleanOp};
-use crate::boolean::face_splitter::split_face_along_segment;
-use crate::boolean::topology_builder::{build_result_solid, BuildError};
-use crate::geom::AnalyticalGeomStore;
+use crate::broad_phase::find_interfering_face_pairs;
+use crate::curve_trimming::{trim_intersection_line, TrimmedSegment};
+use crate::face_classifier::{classify_face, FacePosition};
+use crate::face_selector::{select_faces, BooleanOp};
+use crate::face_splitter::split_face_along_segment;
+use crate::topology_builder::{build_result_solid, BuildError};
+use rustkernel_geom::AnalyticalGeomStore;
 
 /// Errors from boolean operations.
 #[derive(Debug)]
@@ -170,8 +170,12 @@ fn classify_and_split_faces(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::boolean::face_selector::BooleanOp;
-    use crate::kernel::Kernel;
+    use crate::face_selector::BooleanOp;
+    use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_geom::AnalyticalGeomStore;
+    use rustkernel_math::Point3;
+    use rustkernel_solvers::default_pipeline;
+    use rustkernel_topology::store::TopoStore;
     use rustkernel_topology::tessellate::tessellate_shell;
     use std::collections::HashSet;
 
@@ -210,14 +214,16 @@ mod tests {
 
     #[test]
     fn test_fuse_overlapping_boxes() {
-        let mut k = Kernel::new();
-        let a = k.make_box(2.0, 2.0, 2.0);
-        let b = k.make_box_at([1.0, 0.0, 0.0], 2.0, 2.0, 2.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let pipeline = default_pipeline();
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(1.0, 0.0, 0.0), 2.0, 2.0, 2.0);
 
         let result = boolean_op(
-            &mut k.topo,
-            &mut k.geom,
-            &k.pipeline,
+            &mut topo,
+            &mut geom,
+            &pipeline,
             a,
             b,
             BooleanOp::Fuse,
@@ -225,14 +231,11 @@ mod tests {
 
         match result {
             Ok(solid) => {
-                verify_solid(&k.topo, solid);
-                // Tessellate to verify mesh is valid.
-                let shell = k.topo.solids.get(solid).shell;
-                tessellate_shell(&mut k.topo, shell, &k.geom);
+                verify_solid(&topo, solid);
+                let shell = topo.solids.get(solid).shell;
+                tessellate_shell(&mut topo, shell, &geom);
             }
             Err(e) => {
-                // Boolean operations on overlapping boxes are complex.
-                // Log the error for debugging but don't panic yet.
                 eprintln!("Fuse failed (may need debugging): {e}");
             }
         }
@@ -240,31 +243,24 @@ mod tests {
 
     #[test]
     fn test_fuse_disjoint_boxes() {
-        let mut k = Kernel::new();
-        let a = k.make_box(1.0, 1.0, 1.0);
-        let b = k.make_box_at([10.0, 0.0, 0.0], 1.0, 1.0, 1.0);
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let pipeline = default_pipeline();
+        let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 1.0, 1.0, 1.0);
+        let b = make_box_into(&mut topo, &mut geom, Point3::new(10.0, 0.0, 0.0), 1.0, 1.0, 1.0);
 
         let result = boolean_op(
-            &mut k.topo,
-            &mut k.geom,
-            &k.pipeline,
+            &mut topo,
+            &mut geom,
+            &pipeline,
             a,
             b,
             BooleanOp::Fuse,
         );
 
-        // Disjoint fuse: all faces are Outside the other solid.
-        // Result should contain all 12 faces. However, sewing two separate
-        // shells into one won't satisfy Euler V-E+F=2 (it would be 4 for two
-        // disconnected components). This should fail validation.
-        // For Phase 2, this is a known limitation.
         match result {
-            Ok(_) => {
-                // Unexpected success — the topology builder might not validate this case correctly.
-            }
-            Err(_) => {
-                // Expected — disjoint fuse is not supported in Phase 2.
-            }
+            Ok(_) => {}
+            Err(_) => {}
         }
     }
 }
