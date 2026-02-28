@@ -10,3 +10,4 @@ rustkernel-geom = { path = "../rustkernel-geom" }
 rustkernel-solvers = { path = "../rustkernel-solvers" }
 rustkernel-builders = { path = "../rustkernel-builders" }
 rustkernel-boolean = { path = "../rustkernel-boolean" }
+rustkernel-sketch = { path = "../rustkernel-sketch" }

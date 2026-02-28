@@ -950,6 +950,7 @@ dependencies = [
  "rustkernel-builders",
  "rustkernel-geom",
  "rustkernel-math",
+ "rustkernel-sketch",
  "rustkernel-solvers",
  "rustkernel-topology",
 ]
@@ -959,6 +960,13 @@ name = "rustkernel-math"
 version = "0.1.0"
 dependencies = [
  "nalgebra",
+]
+
+[[package]]
+name = "rustkernel-sketch"
+version = "0.1.0"
+dependencies = [
+ "rustkernel-math",
 ]
 
 [[package]]
