@@ -28,6 +28,35 @@ pub fn face_boundary_points(
     points
 }
 
+/// Compute the centroid (average of vertices) and best-fit normal (Newell's method)
+/// for a 3D polygon boundary. Works for any polygon — planar, near-planar, or
+/// polygon-approximated curved faces.
+pub fn polygon_centroid_and_normal(pts: &[Point3]) -> (Point3, Vec3) {
+    let n = pts.len();
+    assert!(n >= 3, "polygon_centroid_and_normal requires at least 3 points");
+
+    // Centroid = average of all points.
+    let sum = pts.iter().fold(Vec3::zeros(), |acc, p| acc + p.coords);
+    let centroid = Point3::from(sum / n as f64);
+
+    // Newell's method: sum cross-product contributions from consecutive edges.
+    let mut normal = Vec3::zeros();
+    for i in 0..n {
+        let curr = &pts[i];
+        let next = &pts[(i + 1) % n];
+        normal.x += (curr.y - next.y) * (curr.z + next.z);
+        normal.y += (curr.z - next.z) * (curr.x + next.x);
+        normal.z += (curr.x - next.x) * (curr.y + next.y);
+    }
+
+    let len = normal.norm();
+    if len > 1e-20 {
+        normal /= len;
+    }
+
+    (centroid, normal)
+}
+
 /// A local 2D coordinate frame for a planar face.
 /// Projects 3D points onto the plane and back.
 #[derive(Debug, Clone)]

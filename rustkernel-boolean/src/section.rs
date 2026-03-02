@@ -1,6 +1,6 @@
 use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
-use rustkernel_topology::face_util::{face_boundary_points, PlaneFrame};
+use rustkernel_topology::face_util::{face_boundary_points, polygon_centroid_and_normal, PlaneFrame};
 use rustkernel_topology::geom_store::{GeomAccess, SurfaceKind};
 use rustkernel_topology::intersection::{
     IntersectionCurve, IntersectionPipeline, SurfaceSurfaceResult,
@@ -53,15 +53,21 @@ pub fn section_solid(
                     match &curve {
                         IntersectionCurve::Line(line) => {
                             // Clip line to the face boundary only (one-sided trim).
+                            let boundary = face_boundary_points(topo, geom, face_idx);
                             let frame = {
                                 let (fo, fn_) = match face_kind {
                                     SurfaceKind::Plane { origin, normal } => (origin, normal),
-                                    _ => continue,
+                                    _ => {
+                                        // Non-planar face: boundary is polygon-approximated,
+                                        // compute best-fit plane via Newell's method.
+                                        if boundary.len() < 3 {
+                                            continue;
+                                        }
+                                        polygon_centroid_and_normal(&boundary)
+                                    }
                                 };
                                 PlaneFrame::from_normal(fo, fn_)
                             };
-
-                            let boundary = face_boundary_points(topo, geom, face_idx);
                             let poly = Polygon2D {
                                 vertices: boundary.iter().map(|p| frame.project_to_2d(p)).collect(),
                             };

@@ -8,6 +8,26 @@ use crate::curve_trimming::TrimmedSegment;
 use rustkernel_geom::AnalyticalGeomStore;
 use rustkernel_geom::LineSegment;
 
+/// Errors from face splitting.
+#[derive(Debug)]
+pub enum SplitError {
+    /// A segment endpoint is too far from any face boundary edge.
+    EndpointNotOnBoundary { dist: f64 },
+    /// The split is degenerate (enter and exit on same edge at same position).
+    DegenerateSplit,
+}
+
+impl std::fmt::Display for SplitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SplitError::EndpointNotOnBoundary { dist } => {
+                write!(f, "segment endpoint not on face boundary (dist={dist})")
+            }
+            SplitError::DegenerateSplit => write!(f, "degenerate split (enter == exit)"),
+        }
+    }
+}
+
 /// Result of splitting a face along an intersection segment.
 pub struct SplitResult {
     /// The two new faces created by the split.
@@ -18,17 +38,17 @@ pub struct SplitResult {
     pub vertex_end: VertexIdx,
 }
 
-/// Split a planar face along a line segment that crosses it.
+/// Split a face along a line segment that crosses it.
 /// The original face is not modified (new topology is created).
 ///
-/// Returns the two new faces. The segment's start and end points
-/// must lie on the face boundary.
+/// Returns the two new faces, or `SplitError` if endpoints can't be snapped
+/// to the boundary or the split is degenerate.
 pub fn split_face_along_segment(
     topo: &mut TopoStore,
     geom: &mut AnalyticalGeomStore,
     face: FaceIdx,
     segment: &TrimmedSegment,
-) -> SplitResult {
+) -> Result<SplitResult, SplitError> {
     let surface_id = topo.faces.get(face).surface_id;
     let shell_idx = topo.faces.get(face).shell;
 
@@ -53,13 +73,18 @@ pub fn split_face_along_segment(
 
     let n = vert_positions.len();
 
-    // Find which edges the segment endpoints lie on.
-    let enter_edge = find_edge_for_point(&vert_positions, &segment.start_point, 1e-8);
-    let exit_edge = find_edge_for_point(&vert_positions, &segment.end_point, 1e-8);
+    // Snap segment endpoints to the face boundary (relaxed tolerance).
+    let (enter_edge, snapped_start) = snap_to_boundary(&vert_positions, &segment.start_point)?;
+    let (exit_edge, snapped_end) = snap_to_boundary(&vert_positions, &segment.end_point)?;
 
-    // Create vertices for the split points.
-    let start_pid = geom.add_point(segment.start_point);
-    let end_pid = geom.add_point(segment.end_point);
+    // Guard against degenerate splits.
+    if enter_edge == exit_edge && (snapped_start - snapped_end).norm() < 1e-10 {
+        return Err(SplitError::DegenerateSplit);
+    }
+
+    // Create vertices for the snapped split points.
+    let start_pid = geom.add_point(snapped_start);
+    let end_pid = geom.add_point(snapped_end);
     let start_vert = topo.vertices.alloc(Vertex { point_id: start_pid });
     let end_vert = topo.vertices.alloc(Vertex { point_id: end_pid });
 
@@ -79,48 +104,55 @@ pub fn split_face_along_segment(
     let face_a = build_face_from_verts(topo, geom, &poly_a_verts, surface_id, shell_idx);
     let face_b = build_face_from_verts(topo, geom, &poly_b_verts, surface_id, shell_idx);
 
-    SplitResult {
+    Ok(SplitResult {
         face_a,
         face_b,
         vertex_start: start_vert,
         vertex_end: end_vert,
-    }
+    })
 }
 
-/// Find which edge of the polygon the point lies on.
-/// Returns the edge index (edge i goes from vertex i to vertex (i+1) % n).
-fn find_edge_for_point(verts: &[Point3], point: &Point3, tol: f64) -> usize {
+/// Snap a point to the nearest face boundary edge.
+/// Returns `(edge_index, snapped_point)` or `SplitError` if too far.
+///
+/// Tolerance: 1e-6 (relaxed from the original 1e-8 to handle floating-point
+/// drift from 2D→3D coordinate reconstruction in curve trimming).
+fn snap_to_boundary(verts: &[Point3], point: &Point3) -> Result<(usize, Point3), SplitError> {
+    let tol = 1e-6;
     let n = verts.len();
     let mut best_edge = 0;
     let mut best_dist = f64::MAX;
+    let mut best_projected = *point;
 
     for i in 0..n {
         let j = (i + 1) % n;
-        let dist = point_to_segment_distance(point, &verts[i], &verts[j]);
+        let (dist, projected) = project_point_onto_segment(point, &verts[i], &verts[j]);
         if dist < best_dist {
             best_dist = dist;
             best_edge = i;
+            best_projected = projected;
         }
     }
 
-    assert!(
-        best_dist < tol,
-        "Segment endpoint not on face boundary (dist={best_dist})"
-    );
-    best_edge
+    if best_dist > tol {
+        return Err(SplitError::EndpointNotOnBoundary { dist: best_dist });
+    }
+
+    Ok((best_edge, best_projected))
 }
 
-/// Distance from a point to a line segment.
-fn point_to_segment_distance(p: &Point3, a: &Point3, b: &Point3) -> f64 {
+/// Project a point onto a line segment, returning (distance, projected_point).
+fn project_point_onto_segment(p: &Point3, a: &Point3, b: &Point3) -> (f64, Point3) {
     let ab = b - a;
     let ap = p - a;
     let len_sq = ab.dot(&ab);
     if len_sq < 1e-20 {
-        return ap.norm();
+        return (ap.norm(), *a);
     }
     let t = (ap.dot(&ab) / len_sq).clamp(0.0, 1.0);
     let proj = a + t * ab;
-    (p - proj).norm()
+    let dist = (p - proj).norm();
+    (dist, proj)
 }
 
 /// Build a sub-polygon vertex list by walking from edge `from_edge` to edge `to_edge`.
@@ -221,6 +253,28 @@ fn build_face_from_verts(
     face_idx
 }
 
+/// Get the ordered boundary vertex positions for a face.
+pub(crate) fn face_boundary_verts(
+    topo: &TopoStore,
+    geom: &dyn GeomAccess,
+    face: FaceIdx,
+) -> Vec<Point3> {
+    let loop_idx = topo.faces.get(face).outer_loop;
+    let start_he = topo.loops.get(loop_idx).half_edge;
+    let mut pts = Vec::new();
+    let mut he = start_he;
+    loop {
+        let vid = topo.half_edges.get(he).origin;
+        let pid = topo.vertices.get(vid).point_id;
+        pts.push(geom.point(pid));
+        he = topo.half_edges.get(he).next;
+        if he == start_he {
+            break;
+        }
+    }
+    pts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,8 +302,6 @@ mod tests {
         }).copied().unwrap();
 
         // Split the top face with a line from (-1, 0, 1) to (1, 0, 1).
-        // This cuts the square [(-1,-1), (1,-1), (1,1), (-1,1)] at z=1
-        // horizontally through the middle.
         let segment = TrimmedSegment {
             t_start: 0.0,
             t_end: 1.0,
@@ -257,7 +309,7 @@ mod tests {
             end_point: Point3::new(1.0, 0.0, 1.0),
         };
 
-        let result = split_face_along_segment(&mut topo, &mut geom, top_face, &segment);
+        let result = split_face_along_segment(&mut topo, &mut geom, top_face, &segment).unwrap();
 
         // Each sub-face should have 4 vertices (rectangles).
         let pts_a = face_boundary_points(&topo, &geom, result.face_a);
@@ -274,6 +326,88 @@ mod tests {
             (total - 4.0).abs() < 1e-6,
             "Areas should sum to 4.0, got {total} ({area_a} + {area_b})"
         );
+    }
+
+    #[test]
+    fn test_split_snap_tolerance() {
+        // Endpoint offset by ~1e-7 from edge → should succeed with relaxed tolerance.
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+
+        let shell = topo.solids.get(solid).shell;
+        let top_face = topo.shells.get(shell).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
+                SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
+                _ => false,
+            }
+        }).copied().unwrap();
+
+        // Offset start_point slightly off the edge (1e-7 in z).
+        let segment = TrimmedSegment {
+            t_start: 0.0,
+            t_end: 1.0,
+            start_point: Point3::new(-1.0, 0.0, 1.0 + 1e-7),
+            end_point: Point3::new(1.0, 0.0, 1.0 + 1e-7),
+        };
+
+        let result = split_face_along_segment(&mut topo, &mut geom, top_face, &segment);
+        assert!(result.is_ok(), "Split should succeed with 1e-7 drift");
+    }
+
+    #[test]
+    fn test_split_degenerate_returns_error() {
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+
+        let shell = topo.solids.get(solid).shell;
+        let top_face = topo.shells.get(shell).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
+                SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
+                _ => false,
+            }
+        }).copied().unwrap();
+
+        // Both endpoints at same location on the same edge → degenerate.
+        let segment = TrimmedSegment {
+            t_start: 0.0,
+            t_end: 0.0,
+            start_point: Point3::new(-1.0, 0.0, 1.0),
+            end_point: Point3::new(-1.0, 0.0, 1.0),
+        };
+
+        let result = split_face_along_segment(&mut topo, &mut geom, top_face, &segment);
+        assert!(result.is_err(), "Degenerate split should return error");
+    }
+
+    #[test]
+    fn test_split_far_endpoint_returns_error() {
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let solid = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
+
+        let shell = topo.solids.get(solid).shell;
+        let top_face = topo.shells.get(shell).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
+                SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
+                _ => false,
+            }
+        }).copied().unwrap();
+
+        // Endpoint far from any edge (0.1 away).
+        let segment = TrimmedSegment {
+            t_start: 0.0,
+            t_end: 1.0,
+            start_point: Point3::new(-1.0, 0.0, 1.1),
+            end_point: Point3::new(1.0, 0.0, 1.1),
+        };
+
+        let result = split_face_along_segment(&mut topo, &mut geom, top_face, &segment);
+        assert!(result.is_err(), "Far endpoint should return error");
     }
 
     /// Compute area of a planar polygon in 3D using cross products.

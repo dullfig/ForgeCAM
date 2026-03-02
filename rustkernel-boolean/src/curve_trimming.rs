@@ -1,6 +1,6 @@
 use rustkernel_math::polygon2d::Polygon2D;
 use rustkernel_math::Point3;
-use rustkernel_topology::face_util::{face_boundary_points, PlaneFrame};
+use rustkernel_topology::face_util::{face_boundary_points, polygon_centroid_and_normal, PlaneFrame};
 use rustkernel_topology::geom_store::{GeomAccess, SurfaceKind};
 use rustkernel_topology::intersection::IntersectionLine;
 use rustkernel_topology::store::TopoStore;
@@ -59,15 +59,25 @@ fn clip_line_to_face(
 ) -> Vec<(f64, f64)> {
     let surface_id = topo.faces.get(face).surface_id;
     let kind = geom.surface_kind(surface_id);
-    let (plane_origin, plane_normal) = match kind {
-        SurfaceKind::Plane { origin, normal } => (origin, normal),
-        _ => return Vec::new(),
-    };
-
-    let frame = PlaneFrame::from_normal(plane_origin, plane_normal);
 
     // Get face boundary as a 2D polygon.
     let boundary_3d = face_boundary_points(topo, geom, face);
+
+    // For planar faces, use the exact plane origin/normal.
+    // For non-planar faces (cylinder, sphere, cone, torus), the boundary is
+    // polygon-approximated (LineSegment chords), so compute a best-fit plane
+    // via Newell's method and clip in that projected frame.
+    let (plane_origin, plane_normal) = match kind {
+        SurfaceKind::Plane { origin, normal } => (origin, normal),
+        _ => {
+            if boundary_3d.len() < 3 {
+                return Vec::new();
+            }
+            polygon_centroid_and_normal(&boundary_3d)
+        }
+    };
+
+    let frame = PlaneFrame::from_normal(plane_origin, plane_normal);
     let poly = Polygon2D {
         vertices: boundary_3d.iter().map(|p| frame.project_to_2d(p)).collect(),
     };
@@ -103,6 +113,8 @@ fn clip_line_to_face(
 mod tests {
     use super::*;
     use rustkernel_builders::box_builder::make_box_into;
+    use rustkernel_builders::cylinder_builder::make_cylinder_into;
+    use rustkernel_builders::cone_builder::make_cone_into;
     use rustkernel_geom::AnalyticalGeomStore;
     use rustkernel_math::Vec3;
     use rustkernel_topology::intersection::IntersectionLine;
@@ -286,5 +298,67 @@ mod tests {
         // Depending on boundary handling, this may be empty or a segment.
         // If boundary is included, overlap should be y in [-1, 1].
         // This is an edge case — documenting behavior.
+    }
+
+    #[test]
+    fn test_clip_line_to_cylinder_face() {
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+
+        // Create a cylinder centered at origin, radius 1, height 2, 16 segments.
+        let cyl = make_cylinder_into(&mut topo, &mut geom, Point3::origin(), 1.0, 2.0, 16);
+
+        // Find a lateral (non-planar) face of the cylinder.
+        let shell = topo.solids.get(cyl).shell;
+        let lateral_face = topo.shells.get(shell).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            !matches!(geom.surface_kind(sid), SurfaceKind::Plane { .. })
+        }).copied().unwrap();
+
+        // A line passing through the interior of this face.
+        // The cylinder lateral faces are quads; use a vertical line at the face midpoint.
+        let boundary = face_boundary_points(&topo, &geom, lateral_face);
+        let centroid = boundary.iter().fold(Vec3::zeros(), |acc, p| acc + p.coords)
+            / boundary.len() as f64;
+        let centroid_pt = Point3::from(centroid);
+
+        // Vertical line through the centroid.
+        let line = IntersectionLine {
+            origin: centroid_pt,
+            direction: Vec3::new(0.0, 0.0, 1.0),
+        };
+
+        let intervals = clip_line_to_face(&line, &topo, &geom, lateral_face);
+        assert!(!intervals.is_empty(), "Clip to cylinder face should produce intervals");
+    }
+
+    #[test]
+    fn test_clip_line_to_cone_face() {
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+
+        // Create a cone centered at origin, bottom radius 1, top radius 0, height 2, 16 segments.
+        let cone = make_cone_into(&mut topo, &mut geom, Point3::origin(), 1.0, 0.0, 2.0, 16);
+
+        // Find a lateral (Cone surface) face.
+        let shell = topo.solids.get(cone).shell;
+        let lateral_face = topo.shells.get(shell).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            matches!(geom.surface_kind(sid), SurfaceKind::Cone { .. })
+        }).copied().unwrap();
+
+        // Line through the face interior.
+        let boundary = face_boundary_points(&topo, &geom, lateral_face);
+        let centroid = boundary.iter().fold(Vec3::zeros(), |acc, p| acc + p.coords)
+            / boundary.len() as f64;
+        let centroid_pt = Point3::from(centroid);
+
+        let line = IntersectionLine {
+            origin: centroid_pt,
+            direction: Vec3::new(0.0, 0.0, 1.0),
+        };
+
+        let intervals = clip_line_to_face(&line, &topo, &geom, lateral_face);
+        assert!(!intervals.is_empty(), "Clip to cone face should produce intervals");
     }
 }
