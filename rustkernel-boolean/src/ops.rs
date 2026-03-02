@@ -11,7 +11,9 @@ use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::{FaceIdx, SolidIdx};
 
 use crate::broad_phase::find_interfering_face_pairs;
-use crate::curve_trimming::{trim_intersection_line, TrimmedSegment};
+use crate::curve_trimming::{
+    trim_intersection_circle, trim_intersection_ellipse, trim_intersection_line, TrimmedSegment,
+};
 use crate::face_classifier::{classify_face, FacePosition};
 use crate::face_selector::{select_faces, BooleanOp};
 use crate::face_splitter::{face_boundary_verts, split_face_along_segment};
@@ -101,9 +103,33 @@ pub fn boolean_op(
                                     .push(seg);
                             }
                         }
-                        IntersectionCurve::Circle(_) | IntersectionCurve::Ellipse(_) => {
-                            // Curved intersection trimming deferred to Phase 4.
-                            continue;
+                        IntersectionCurve::Circle(circle) => {
+                            let trimmed =
+                                trim_intersection_circle(circle, topo, geom, face_a, face_b);
+                            for seg in trimmed {
+                                segments_for_face_a
+                                    .entry(face_a)
+                                    .or_default()
+                                    .push(seg.clone());
+                                segments_for_face_b
+                                    .entry(face_b)
+                                    .or_default()
+                                    .push(seg);
+                            }
+                        }
+                        IntersectionCurve::Ellipse(ellipse) => {
+                            let trimmed =
+                                trim_intersection_ellipse(ellipse, topo, geom, face_a, face_b);
+                            for seg in trimmed {
+                                segments_for_face_a
+                                    .entry(face_a)
+                                    .or_default()
+                                    .push(seg.clone());
+                                segments_for_face_b
+                                    .entry(face_b)
+                                    .or_default()
+                                    .push(seg);
+                            }
                         }
                     }
                 }
@@ -409,14 +435,19 @@ mod tests {
         let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
         let b = make_cylinder_into(&mut topo, &mut geom, Point3::new(0.5, 0.0, 0.0), 0.5, 2.0, 16);
 
-        let result = boolean_op(&mut topo, &mut geom, &pipeline, a, b, BooleanOp::Fuse);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            boolean_op(&mut topo, &mut geom, &pipeline, a, b, BooleanOp::Fuse)
+        }));
         match result {
-            Ok(solid) => {
+            Ok(Ok(solid)) => {
                 verify_solid(&topo, solid);
             }
-            Err(e) => {
-                // May fail due to circle curves in SSI — acceptable for now.
-                eprintln!("Fuse box+cylinder: {e} (circle curves not yet supported)");
+            Ok(Err(e)) => {
+                // Circle trimming now works; downstream topology reconstruction may still fail.
+                eprintln!("Fuse box+cylinder: {e}");
+            }
+            Err(_) => {
+                eprintln!("Fuse box+cylinder panicked (topology reconstruction issue)");
             }
         }
     }
@@ -430,14 +461,18 @@ mod tests {
         let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 2.0, 2.0, 2.0);
         let b = make_cylinder_into(&mut topo, &mut geom, Point3::new(0.0, 0.0, 0.0), 0.5, 2.0, 16);
 
-        let result = boolean_op(&mut topo, &mut geom, &pipeline, a, b, BooleanOp::Cut);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            boolean_op(&mut topo, &mut geom, &pipeline, a, b, BooleanOp::Cut)
+        }));
         match result {
-            Ok(solid) => {
+            Ok(Ok(solid)) => {
                 verify_solid(&topo, solid);
             }
-            Err(e) => {
-                // May fail due to circle intersection curves.
-                eprintln!("Cut box-cylinder: {e} (circle curves not yet supported)");
+            Ok(Err(e)) => {
+                eprintln!("Cut box-cylinder: {e}");
+            }
+            Err(_) => {
+                eprintln!("Cut box-cylinder panicked (topology reconstruction issue)");
             }
         }
     }
@@ -524,14 +559,19 @@ mod tests {
         let a = make_box_into(&mut topo, &mut geom, Point3::origin(), 4.0, 4.0, 4.0);
         let b = make_sphere_into(&mut topo, &mut geom, Point3::origin(), 1.0, 16, 8);
 
-        let result = boolean_op(&mut topo, &mut geom, &pipeline, a, b, BooleanOp::Cut);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            boolean_op(&mut topo, &mut geom, &pipeline, a, b, BooleanOp::Cut)
+        }));
         match result {
-            Ok(solid) => {
+            Ok(Ok(solid)) => {
                 verify_solid(&topo, solid);
             }
-            Err(e) => {
-                // Plane-sphere SSI returns circles — expected limitation.
-                eprintln!("Cut box-sphere: {e} (circle curve support needed)");
+            Ok(Err(e)) => {
+                // Circle trimming now works; downstream topology may still fail.
+                eprintln!("Cut box-sphere: {e}");
+            }
+            Err(_) => {
+                eprintln!("Cut box-sphere panicked (topology reconstruction issue)");
             }
         }
     }

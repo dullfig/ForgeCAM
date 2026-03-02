@@ -2,9 +2,11 @@ use rustkernel_math::polygon2d::Polygon2D;
 use rustkernel_math::Point3;
 use rustkernel_topology::face_util::{face_boundary_points, polygon_centroid_and_normal, PlaneFrame};
 use rustkernel_topology::geom_store::{GeomAccess, SurfaceKind};
-use rustkernel_topology::intersection::IntersectionLine;
+use rustkernel_topology::intersection::{IntersectionCircle, IntersectionEllipse, IntersectionLine};
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::FaceIdx;
+
+const DEFAULT_CHORD_COUNT: usize = 32;
 
 /// A bounded segment of an intersection curve, parameterized by t along the
 /// unbounded IntersectionLine.
@@ -47,6 +49,114 @@ pub fn trim_intersection_line(
         }
     }
     result
+}
+
+/// Sample an intersection circle into `n` chords, returning `n+1` points
+/// (first == last for a closed loop).
+fn sample_circle(circ: &IntersectionCircle, n: usize) -> Vec<Point3> {
+    let ref_y = circ.axis.cross(&circ.ref_dir);
+    (0..=n)
+        .map(|i| {
+            let theta = (i as f64 / n as f64) * std::f64::consts::TAU;
+            circ.center + circ.radius * (theta.cos() * circ.ref_dir + theta.sin() * ref_y)
+        })
+        .collect()
+}
+
+/// Sample an intersection ellipse into `n` chords, returning `n+1` points
+/// (first == last for a closed loop).
+fn sample_ellipse(ell: &IntersectionEllipse, n: usize) -> Vec<Point3> {
+    let minor_dir = ell.axis.cross(&ell.major_dir);
+    (0..=n)
+        .map(|i| {
+            let theta = (i as f64 / n as f64) * std::f64::consts::TAU;
+            ell.center
+                + ell.semi_major * theta.cos() * ell.major_dir
+                + ell.semi_minor * theta.sin() * minor_dir
+        })
+        .collect()
+}
+
+/// Trim a sampled curve (sequence of chord points) to the overlap region of two faces.
+///
+/// For each consecutive pair `(points[i], points[i+1])`, treats the chord as a bounded
+/// line segment, clips it to both face boundaries, and emits `TrimmedSegment`s for the
+/// overlap intervals clamped to [0, 1].
+fn trim_sampled_curve(
+    points: &[Point3],
+    topo: &TopoStore,
+    geom: &dyn GeomAccess,
+    face_a: FaceIdx,
+    face_b: FaceIdx,
+) -> Vec<TrimmedSegment> {
+    let mut result = Vec::new();
+
+    for i in 0..points.len().saturating_sub(1) {
+        let p0 = points[i];
+        let p1 = points[i + 1];
+        let dir = p1 - p0;
+        let len = dir.norm();
+        if len < 1e-14 {
+            continue;
+        }
+
+        // Treat chord as an unbounded line for clip_line_to_face.
+        let chord_line = IntersectionLine {
+            origin: p0,
+            direction: dir,
+        };
+
+        let intervals_a = clip_line_to_face(&chord_line, topo, geom, face_a);
+        let intervals_b = clip_line_to_face(&chord_line, topo, geom, face_b);
+
+        // Intersect interval sets, clamped to [0, 1] (the chord extent).
+        for &(a_start, a_end) in &intervals_a {
+            for &(b_start, b_end) in &intervals_b {
+                let start = a_start.max(b_start).max(0.0);
+                let end = a_end.min(b_end).min(1.0);
+                if end - start > 1e-10 {
+                    result.push(TrimmedSegment {
+                        t_start: start,
+                        t_end: end,
+                        start_point: p0 + start * dir,
+                        end_point: p0 + end * dir,
+                    });
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Trim an intersection circle to the overlap region of two faces.
+///
+/// Samples the circle into `DEFAULT_CHORD_COUNT` chords and clips each chord
+/// to both face boundaries, producing trimmed segments suitable for face splitting.
+pub fn trim_intersection_circle(
+    circle: &IntersectionCircle,
+    topo: &TopoStore,
+    geom: &dyn GeomAccess,
+    face_a: FaceIdx,
+    face_b: FaceIdx,
+) -> Vec<TrimmedSegment> {
+    let points = sample_circle(circle, DEFAULT_CHORD_COUNT);
+    trim_sampled_curve(&points, topo, geom, face_a, face_b)
+}
+
+/// Trim an intersection ellipse to the overlap region of two faces.
+///
+/// Samples the ellipse into `DEFAULT_CHORD_COUNT` chords and clips each chord
+/// to both face boundaries, producing trimmed segments suitable for face splitting.
+pub fn trim_intersection_ellipse(
+    ellipse: &IntersectionEllipse,
+    topo: &TopoStore,
+    geom: &dyn GeomAccess,
+    face_a: FaceIdx,
+    face_b: FaceIdx,
+) -> Vec<TrimmedSegment> {
+    let points = sample_ellipse(ellipse, DEFAULT_CHORD_COUNT);
+    trim_sampled_curve(&points, topo, geom, face_a, face_b)
 }
 
 /// Clip the intersection line to a single face's polygon boundary.
@@ -360,5 +470,131 @@ mod tests {
 
         let intervals = clip_line_to_face(&line, &topo, &geom, lateral_face);
         assert!(!intervals.is_empty(), "Clip to cone face should produce intervals");
+    }
+
+    #[test]
+    fn test_sample_circle_closure() {
+        use rustkernel_topology::intersection::IntersectionCircle;
+
+        let circ = IntersectionCircle {
+            center: Point3::new(1.0, 2.0, 3.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+            ref_dir: Vec3::new(1.0, 0.0, 0.0),
+        };
+        let pts = sample_circle(&circ, DEFAULT_CHORD_COUNT);
+        assert_eq!(pts.len(), DEFAULT_CHORD_COUNT + 1);
+
+        // First and last points should coincide (closed loop).
+        assert!(
+            (pts[0] - pts[DEFAULT_CHORD_COUNT]).norm() < 1e-12,
+            "Circle sample should be closed"
+        );
+
+        // All points should lie on the circle.
+        for p in &pts {
+            let dist = (p - circ.center).norm();
+            assert!(
+                (dist - circ.radius).abs() < 1e-12,
+                "Point not on circle: distance={dist}, expected={}",
+                circ.radius
+            );
+        }
+    }
+
+    #[test]
+    fn test_sample_ellipse_closure() {
+        use rustkernel_topology::intersection::IntersectionEllipse;
+
+        let ell = IntersectionEllipse {
+            center: Point3::origin(),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            semi_major: 3.0,
+            semi_minor: 1.5,
+            major_dir: Vec3::new(1.0, 0.0, 0.0),
+        };
+        let pts = sample_ellipse(&ell, DEFAULT_CHORD_COUNT);
+        assert_eq!(pts.len(), DEFAULT_CHORD_COUNT + 1);
+
+        // First and last points should coincide.
+        assert!(
+            (pts[0] - pts[DEFAULT_CHORD_COUNT]).norm() < 1e-12,
+            "Ellipse sample should be closed"
+        );
+
+        // Check cardinal points: θ=0 → center + semi_major * major_dir
+        let expected_0 = ell.center + ell.semi_major * ell.major_dir;
+        assert!(
+            (pts[0] - expected_0).norm() < 1e-12,
+            "θ=0 should be at semi-major along major_dir"
+        );
+
+        // θ=π/2 (at i = n/4) → center + semi_minor * minor_dir
+        let quarter = DEFAULT_CHORD_COUNT / 4;
+        let minor_dir = ell.axis.cross(&ell.major_dir);
+        let expected_quarter = ell.center + ell.semi_minor * minor_dir;
+        assert!(
+            (pts[quarter] - expected_quarter).norm() < 1e-12,
+            "θ=π/2 should be at semi-minor along minor_dir"
+        );
+    }
+
+    #[test]
+    fn test_trim_circle_box_sphere() {
+        use rustkernel_builders::sphere_builder::make_sphere_into;
+        use rustkernel_topology::intersection::IntersectionCircle;
+
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+
+        // Box centered at origin 4x4x4 (extends -2..2).
+        let bx = make_box_into(&mut topo, &mut geom, Point3::origin(), 4.0, 4.0, 4.0);
+        // Sphere radius 2.5 at origin. Intersection with box top face (z=2):
+        // circle at z=2, radius = sqrt(2.5^2 - 2^2) = sqrt(2.25) = 1.5
+        let sp = make_sphere_into(&mut topo, &mut geom, Point3::origin(), 2.5, 16, 8);
+
+        // Find the top face (+Z) of the box.
+        let shell_box = topo.solids.get(bx).shell;
+        let top_face = topo.shells.get(shell_box).faces.iter().find(|&&f| {
+            let sid = topo.faces.get(f).surface_id;
+            match geom.surface_kind(sid) {
+                SurfaceKind::Plane { normal, .. } => normal.z > 0.5,
+                _ => false,
+            }
+        }).copied().unwrap();
+
+        // Find a sphere face whose centroid is near z=2 (the circle intersection plane).
+        let shell_sp = topo.solids.get(sp).shell;
+        let sphere_face = topo.shells.get(shell_sp).faces.iter()
+            .filter(|&&f| {
+                let sid = topo.faces.get(f).surface_id;
+                matches!(geom.surface_kind(sid), SurfaceKind::Sphere { .. })
+            })
+            .min_by(|&&f1, &&f2| {
+                let b1 = face_boundary_points(&topo, &geom, f1);
+                let b2 = face_boundary_points(&topo, &geom, f2);
+                let z1 = b1.iter().map(|p| p.z).sum::<f64>() / b1.len() as f64;
+                let z2 = b2.iter().map(|p| p.z).sum::<f64>() / b2.len() as f64;
+                (z1 - 2.0).abs().partial_cmp(&(z2 - 2.0).abs()).unwrap()
+            })
+            .copied().unwrap();
+
+        // Construct the circle at z=2 (plane-sphere intersection).
+        let circ = IntersectionCircle {
+            center: Point3::new(0.0, 0.0, 2.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.5,
+            ref_dir: Vec3::new(1.0, 0.0, 0.0),
+        };
+
+        let segments = trim_intersection_circle(&circ, &topo, &geom, top_face, sphere_face);
+
+        // The circle (radius 1.5 at z=2) lies entirely within the box top face (x,y in -2..2).
+        // The sphere face near z=2 covers an angular patch — the circle should pass through
+        // at least part of it, producing some trimmed chord segments.
+        assert!(
+            !segments.is_empty(),
+            "Circle trim between box top face and sphere face near z=2 should produce segments"
+        );
     }
 }
