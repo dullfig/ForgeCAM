@@ -41,6 +41,11 @@ pub fn tessellate_face_with_options(
 
     match kind {
         SurfaceKind::Plane { .. } => tessellate_planar_face(topo, face_idx, geom),
+        SurfaceKind::Nurbs => {
+            if let Some(mesh) = geom.tessellate_surface(surface_id, 16, 16) {
+                topo.faces.get_mut(face_idx).mesh_cache = Some(mesh);
+            }
+        }
         _ => tessellate_curved_face(topo, face_idx, geom),
     }
 }
@@ -195,7 +200,7 @@ fn inverse_map(kind: &SurfaceKind, p: &rustkernel_math::Point3) -> (f64, f64) {
             let v = to_p.dot(&a).atan2(to_p.dot(&radial));
             (u, v)
         }
-        SurfaceKind::Unknown => (0.0, 0.0),
+        SurfaceKind::Nurbs | SurfaceKind::Unknown => (0.0, 0.0),
     }
 }
 

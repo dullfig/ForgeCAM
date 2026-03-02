@@ -1,3 +1,4 @@
+use crate::mesh_cache::FaceMesh;
 use rustkernel_math::{Point3, Vec3};
 
 /// Classification of a surface with its geometric parameters.
@@ -9,6 +10,7 @@ pub enum SurfaceKind {
     Sphere { center: Point3, radius: f64 },
     Cone { apex: Point3, axis: Vec3, half_angle: f64 },
     Torus { center: Point3, axis: Vec3, major_radius: f64, minor_radius: f64 },
+    Nurbs,
     Unknown,
 }
 
@@ -20,6 +22,7 @@ pub enum CurveKind {
     Circle { center: Point3, axis: Vec3, radius: f64 },
     Ellipse { center: Point3, axis: Vec3, semi_major: f64, semi_minor: f64, major_dir: Vec3 },
     CircularArc { center: Point3, axis: Vec3, radius: f64, ref_dir: Vec3, start_angle: f64, end_angle: f64 },
+    Nurbs,
     Unknown,
 }
 
@@ -46,4 +49,19 @@ pub trait GeomAccess {
 
     /// Classify a surface by kind, returning its geometric parameters.
     fn surface_kind(&self, surface_id: u32) -> SurfaceKind;
+
+    /// Get the parameter domain of a curve. Default: (0.0, 1.0).
+    fn curve_domain(&self, _curve_id: u32) -> (f64, f64) {
+        (0.0, 1.0)
+    }
+
+    /// Get the parameter domain of a surface. Default: ((0.0, 1.0), (0.0, 1.0)).
+    fn surface_domain(&self, _surface_id: u32) -> ((f64, f64), (f64, f64)) {
+        ((0.0, 1.0), (0.0, 1.0))
+    }
+
+    /// Tessellate a surface into a mesh (used for NURBS; analytical surfaces return None).
+    fn tessellate_surface(&self, _surface_id: u32, _divs_u: usize, _divs_v: usize) -> Option<FaceMesh> {
+        None
+    }
 }

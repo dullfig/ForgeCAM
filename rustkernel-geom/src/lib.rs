@@ -1,5 +1,7 @@
-use rustkernel_math::{orthonormal_basis, Point3, Vec3};
+use curvo::prelude::{NurbsCurve3D, NurbsSurface3D};
+use rustkernel_math::{orthonormal_basis, Mat4, Point3, Vec3};
 use rustkernel_topology::geom_store::{CurveKind, GeomAccess, SurfaceKind};
+use rustkernel_topology::mesh_cache::FaceMesh;
 
 // ── Primitive geometry types ──
 
@@ -89,6 +91,7 @@ pub enum SurfaceDef {
     Sphere(SphereSurface),
     Cone(ConeSurface),
     Torus(TorusSurface),
+    Nurbs(NurbsSurface3D<f64>),
 }
 
 impl SurfaceDef {
@@ -100,6 +103,7 @@ impl SurfaceDef {
             SurfaceDef::Sphere(s) => s.radius = -s.radius,
             SurfaceDef::Cone(c) => c.half_angle = -c.half_angle,
             SurfaceDef::Torus(t) => t.minor_radius = -t.minor_radius,
+            SurfaceDef::Nurbs(_) => {} // no-op: NURBS booleans not yet supported
         }
     }
 
@@ -111,6 +115,11 @@ impl SurfaceDef {
             SurfaceDef::Sphere(s) => s.center += delta,
             SurfaceDef::Cone(c) => c.apex += delta,
             SurfaceDef::Torus(t) => t.center += delta,
+            SurfaceDef::Nurbs(ns) => {
+                use curvo::prelude::Transformable;
+                let m = Mat4::new_translation(delta);
+                ns.transform(&m);
+            }
         }
     }
 }
@@ -122,6 +131,7 @@ pub enum CurveDef {
     Circle(CircleCurve),
     CircularArc(CircularArcCurve),
     Ellipse(EllipseCurve),
+    Nurbs(NurbsCurve3D<f64>),
 }
 
 impl CurveDef {
@@ -135,6 +145,11 @@ impl CurveDef {
             CurveDef::Circle(c) => c.center += delta,
             CurveDef::CircularArc(a) => a.center += delta,
             CurveDef::Ellipse(e) => e.center += delta,
+            CurveDef::Nurbs(nc) => {
+                use curvo::prelude::Transformable;
+                let m = Mat4::new_translation(delta);
+                nc.transform(&m);
+            }
         }
     }
 }
@@ -186,6 +201,16 @@ impl AnalyticalGeomStore {
     pub fn add_plane(&mut self, plane: Plane) -> u32 {
         self.add_surface(SurfaceDef::Plane(plane))
     }
+
+    /// Add a NURBS curve.
+    pub fn add_nurbs_curve(&mut self, curve: NurbsCurve3D<f64>) -> u32 {
+        self.add_curve(CurveDef::Nurbs(curve))
+    }
+
+    /// Add a NURBS surface.
+    pub fn add_nurbs_surface(&mut self, surface: NurbsSurface3D<f64>) -> u32 {
+        self.add_surface(SurfaceDef::Nurbs(surface))
+    }
 }
 
 impl Default for AnalyticalGeomStore {
@@ -221,6 +246,7 @@ impl GeomAccess for AnalyticalGeomStore {
                 e.center + e.semi_major * angle.cos() * e.major_dir
                     + e.semi_minor * angle.sin() * minor_dir
             }
+            CurveDef::Nurbs(nc) => nc.point_at(t),
         }
     }
 
@@ -250,6 +276,7 @@ impl GeomAccess for AnalyticalGeomStore {
                 semi_minor: e.semi_minor,
                 major_dir: e.major_dir,
             },
+            CurveDef::Nurbs(_) => CurveKind::Nurbs,
         }
     }
 
@@ -273,6 +300,7 @@ impl GeomAccess for AnalyticalGeomStore {
                     + e.semi_minor * angle.cos() * minor_dir)
                     .normalize()
             }
+            CurveDef::Nurbs(nc) => nc.tangent_at(t).normalize(),
         }
     }
 
@@ -309,6 +337,7 @@ impl GeomAccess for AnalyticalGeomStore {
                     + (big_r + small_r * v.cos()) * (u.cos() * ref_x + u.sin() * ref_y)
                     + small_r * v.sin() * tor.axis
             }
+            SurfaceDef::Nurbs(ns) => ns.point_at(u, v),
         }
     }
 
@@ -336,6 +365,11 @@ impl GeomAccess for AnalyticalGeomStore {
                 let (ref_x, ref_y) = orthonormal_basis(&tor.axis);
                 let n = v.cos() * (u.cos() * ref_x + u.sin() * ref_y) + v.sin() * tor.axis;
                 if tor.minor_radius < 0.0 { -n } else { n }
+            }
+            SurfaceDef::Nurbs(ns) => {
+                let n = ns.normal_at(u, v);
+                let len = n.norm();
+                if len > 1e-15 { n / len } else { Vec3::new(0.0, 0.0, 1.0) }
             }
         }
     }
@@ -366,6 +400,61 @@ impl GeomAccess for AnalyticalGeomStore {
                 major_radius: tor.major_radius,
                 minor_radius: tor.minor_radius,
             },
+            SurfaceDef::Nurbs(_) => SurfaceKind::Nurbs,
+        }
+    }
+
+    fn curve_domain(&self, curve_id: u32) -> (f64, f64) {
+        match &self.curves[curve_id as usize] {
+            CurveDef::Nurbs(nc) => nc.knots_domain(),
+            _ => (0.0, 1.0),
+        }
+    }
+
+    fn surface_domain(&self, surface_id: u32) -> ((f64, f64), (f64, f64)) {
+        match &self.surfaces[surface_id as usize] {
+            SurfaceDef::Nurbs(ns) => ns.knots_domain(),
+            _ => ((0.0, 1.0), (0.0, 1.0)),
+        }
+    }
+
+    fn tessellate_surface(&self, surface_id: u32, divs_u: usize, divs_v: usize) -> Option<FaceMesh> {
+        match &self.surfaces[surface_id as usize] {
+            SurfaceDef::Nurbs(ns) => {
+                let ((u_min, u_max), (v_min, v_max)) = ns.knots_domain();
+                let mut positions = Vec::with_capacity((divs_u + 1) * (divs_v + 1));
+                let mut normals = Vec::with_capacity((divs_u + 1) * (divs_v + 1));
+                let mut uvs = Vec::with_capacity((divs_u + 1) * (divs_v + 1));
+                for iv in 0..=divs_v {
+                    let v = v_min + (v_max - v_min) * iv as f64 / divs_v as f64;
+                    for iu in 0..=divs_u {
+                        let u = u_min + (u_max - u_min) * iu as f64 / divs_u as f64;
+                        positions.push(ns.point_at(u, v));
+                        let n = ns.normal_at(u, v);
+                        let len = n.norm();
+                        normals.push(if len > 1e-15 { n / len } else { Vec3::new(0.0, 0.0, 1.0) });
+                        uvs.push([u, v]);
+                    }
+                }
+                let mut indices = Vec::with_capacity(divs_u * divs_v * 6);
+                let w = (divs_u + 1) as u32;
+                for iv in 0..divs_v as u32 {
+                    for iu in 0..divs_u as u32 {
+                        let i00 = iv * w + iu;
+                        let i10 = i00 + 1;
+                        let i01 = i00 + w;
+                        let i11 = i01 + 1;
+                        indices.push(i00);
+                        indices.push(i10);
+                        indices.push(i11);
+                        indices.push(i00);
+                        indices.push(i11);
+                        indices.push(i01);
+                    }
+                }
+                Some(FaceMesh { positions, normals, indices, uvs })
+            }
+            _ => None,
         }
     }
 }
@@ -373,6 +462,118 @@ impl GeomAccess for AnalyticalGeomStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use curvo::prelude::Interpolation;
+
+    // Helper: create a NURBS curve through 4 points
+    fn make_test_curve() -> NurbsCurve3D<f64> {
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(3.0, 1.0, 0.0),
+        ];
+        NurbsCurve3D::<f64>::interpolate(&pts, 3).unwrap()
+    }
+
+    // Helper: create a NURBS surface by extruding a line along Z
+    fn make_test_surface() -> NurbsSurface3D<f64> {
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ];
+        let curve = NurbsCurve3D::<f64>::interpolate(&pts, 1).unwrap();
+        NurbsSurface3D::<f64>::extrude(&curve, &Vec3::new(0.0, 0.0, 2.0))
+    }
+
+    #[test]
+    fn test_nurbs_curve_eval() {
+        let mut geom = AnalyticalGeomStore::new();
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(3.0, 1.0, 0.0),
+        ];
+        let curve = NurbsCurve3D::<f64>::interpolate(&pts, 3).unwrap();
+        let (t0, t1) = curve.knots_domain();
+        let cid = geom.add_nurbs_curve(curve);
+        // Curve should pass through start and end points
+        let p_start = geom.curve_eval(cid, t0);
+        let p_end = geom.curve_eval(cid, t1);
+        assert!((p_start - pts[0]).norm() < 1e-8, "Curve should start at first point");
+        assert!((p_end - pts[3]).norm() < 1e-8, "Curve should end at last point");
+    }
+
+    #[test]
+    fn test_nurbs_curve_tangent() {
+        let mut geom = AnalyticalGeomStore::new();
+        let curve = make_test_curve();
+        let (t0, t1) = curve.knots_domain();
+        let cid = geom.add_nurbs_curve(curve);
+        let t_mid = (t0 + t1) / 2.0;
+        let tangent = geom.curve_tangent(cid, t_mid);
+        assert!(tangent.norm() > 0.99, "Tangent should be unit-length");
+    }
+
+    #[test]
+    fn test_nurbs_curve_domain() {
+        let mut geom = AnalyticalGeomStore::new();
+        let curve = make_test_curve();
+        let expected = curve.knots_domain();
+        let cid = geom.add_nurbs_curve(curve);
+        let domain = geom.curve_domain(cid);
+        assert_eq!(domain, expected);
+    }
+
+    #[test]
+    fn test_nurbs_surface_eval() {
+        let mut geom = AnalyticalGeomStore::new();
+        let surface = make_test_surface();
+        let ((u0, u1), (v0, v1)) = surface.knots_domain();
+        let sid = geom.add_nurbs_surface(surface);
+        // Collect all 4 corners — extrude may map u/v differently
+        let corners = [
+            geom.surface_eval(sid, u0, v0),
+            geom.surface_eval(sid, u1, v0),
+            geom.surface_eval(sid, u0, v1),
+            geom.surface_eval(sid, u1, v1),
+        ];
+        let expected = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, 2.0),
+            Point3::new(1.0, 0.0, 2.0),
+        ];
+        // Each expected corner should be close to some actual corner
+        for exp in &expected {
+            let min_dist = corners.iter().map(|c| (c - exp).norm()).fold(f64::MAX, f64::min);
+            assert!(min_dist < 1e-6, "Expected corner {:?} not found, corners: {:?}", exp, corners);
+        }
+    }
+
+    #[test]
+    fn test_nurbs_surface_normal() {
+        let mut geom = AnalyticalGeomStore::new();
+        let surface = make_test_surface();
+        let ((u0, u1), (v0, v1)) = surface.knots_domain();
+        let sid = geom.add_nurbs_surface(surface);
+        let u_mid = (u0 + u1) / 2.0;
+        let v_mid = (v0 + v1) / 2.0;
+        let n = geom.surface_normal(sid, u_mid, v_mid);
+        assert!(n.norm() > 0.99, "Normal should be unit-length");
+    }
+
+    #[test]
+    fn test_nurbs_surface_tessellate() {
+        let mut geom = AnalyticalGeomStore::new();
+        let sid = geom.add_nurbs_surface(make_test_surface());
+        let mesh = geom.tessellate_surface(sid, 4, 4);
+        assert!(mesh.is_some(), "NURBS surface should tessellate");
+        let mesh = mesh.unwrap();
+        // 5x5 grid = 25 vertices, 4x4 = 16 quads = 32 triangles
+        assert_eq!(mesh.positions.len(), 25);
+        assert_eq!(mesh.triangle_count(), 32);
+    }
 
     #[test]
     fn test_cylinder_surface_eval() {

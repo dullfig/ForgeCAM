@@ -168,7 +168,7 @@ fn ray_surface_intersection(
             // Quartic — defer (return None, skip face).
             None
         }
-        SurfaceKind::Unknown => None,
+        SurfaceKind::Nurbs | SurfaceKind::Unknown => None,
     }
 }
 

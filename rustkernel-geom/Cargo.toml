@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 rustkernel-math = { path = "../rustkernel-math" }
 rustkernel-topology = { path = "../rustkernel-topology" }
+curvo = "0.1"

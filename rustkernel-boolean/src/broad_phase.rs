@@ -60,7 +60,7 @@ fn surface_aabb_inflation(geom: &dyn GeomAccess, surface_id: u32) -> f64 {
             half_angle.abs().tan() * 0.1 // small inflation
         }
         SurfaceKind::Torus { minor_radius, .. } => minor_radius.abs(),
-        SurfaceKind::Unknown => 0.0,
+        SurfaceKind::Nurbs | SurfaceKind::Unknown => 0.0,
     }
 }
 

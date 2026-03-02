@@ -13,7 +13,8 @@ use rustkernel_builders::extrude_builder::make_extrude_into;
 use rustkernel_builders::revolve_builder::make_revolve_into;
 use rustkernel_builders::sphere_builder::make_sphere_into;
 use rustkernel_builders::torus_builder::make_torus_into;
-use rustkernel_geom::AnalyticalGeomStore;
+use curvo::prelude::{Interpolation, NurbsCurve3D, NurbsSurface3D};
+use rustkernel_geom::{AnalyticalGeomStore, CurveDef};
 use rustkernel_solvers::default_pipeline;
 
 /// Central kernel holding all topology, geometry, and the intersection pipeline.
@@ -249,6 +250,53 @@ impl Kernel {
     /// Revolve a closed 3D profile polygon around an axis.
     pub fn revolve(&mut self, profile: &[Point3], axis_origin: Point3, axis_dir: Vec3, angle: f64) -> SolidIdx {
         make_revolve_into(&mut self.topo, &mut self.geom, profile, axis_origin, axis_dir, angle, 32)
+    }
+
+    // --- NURBS ---
+
+    /// Create a NURBS curve interpolating through 3D points.
+    pub fn interpolate_curve(&mut self, points: &[Point3], degree: usize) -> u32 {
+        let pts: Vec<Point3> = points.to_vec();
+        let curve = NurbsCurve3D::<f64>::interpolate(&pts, degree)
+            .expect("NURBS interpolation failed");
+        self.geom.add_nurbs_curve(curve)
+    }
+
+    /// Loft a NURBS surface through multiple NURBS curves.
+    pub fn loft(&mut self, curve_ids: &[u32], degree_v: usize) -> u32 {
+        let curves: Vec<NurbsCurve3D<f64>> = curve_ids
+            .iter()
+            .map(|&id| {
+                match &self.geom.curves[id as usize] {
+                    CurveDef::Nurbs(nc) => nc.clone(),
+                    _ => panic!("loft requires NURBS curves, curve {} is not NURBS", id),
+                }
+            })
+            .collect();
+        let surface = NurbsSurface3D::<f64>::try_loft(&curves, Some(degree_v))
+            .expect("NURBS loft failed");
+        self.geom.add_nurbs_surface(surface)
+    }
+
+    /// Extrude a NURBS curve into a NURBS surface along direction * length.
+    pub fn nurbs_extrude(&mut self, curve_id: u32, direction: Vec3, length: f64) -> u32 {
+        let curve = match &self.geom.curves[curve_id as usize] {
+            CurveDef::Nurbs(nc) => nc.clone(),
+            _ => panic!("nurbs_extrude requires a NURBS curve, curve {} is not NURBS", curve_id),
+        };
+        let translation = direction.normalize() * length;
+        let surface = NurbsSurface3D::<f64>::extrude(&curve, &translation);
+        self.geom.add_nurbs_surface(surface)
+    }
+
+    /// Store a pre-built NURBS curve, returning its curve ID.
+    pub fn add_nurbs_curve(&mut self, curve: NurbsCurve3D<f64>) -> u32 {
+        self.geom.add_nurbs_curve(curve)
+    }
+
+    /// Store a pre-built NURBS surface, returning its surface ID.
+    pub fn add_nurbs_surface(&mut self, surface: NurbsSurface3D<f64>) -> u32 {
+        self.geom.add_nurbs_surface(surface)
     }
 }
 
@@ -492,6 +540,7 @@ fn copy_surface(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustkernel_topology::geom_store::GeomAccess;
     use rustkernel_topology::tessellate::tessellate_shell;
     use std::collections::HashSet;
 
@@ -1216,5 +1265,103 @@ mod tests {
         let _fused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             kernel.fuse(base, revolved)
         }));
+    }
+
+    // --- NURBS tests ---
+
+    #[test]
+    fn test_interpolate_curve() {
+        let mut kernel = Kernel::new();
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 2.0, 0.0),
+            Point3::new(3.0, 1.0, 0.0),
+            Point3::new(4.0, 3.0, 0.0),
+            Point3::new(5.0, 0.0, 0.0),
+        ];
+        let cid = kernel.interpolate_curve(&pts, 3);
+        let (t0, t1) = kernel.geom().curve_domain(cid);
+        // Curve should pass through each interpolation point
+        // Evaluate at knot parameters; start and end are exact
+        let p0 = kernel.geom().curve_eval(cid, t0);
+        let p_end = kernel.geom().curve_eval(cid, t1);
+        assert!((p0 - pts[0]).norm() < 1e-6, "Start point mismatch");
+        assert!((p_end - pts[4]).norm() < 1e-6, "End point mismatch");
+    }
+
+    #[test]
+    fn test_loft_two_curves() {
+        let mut kernel = Kernel::new();
+        let c0 = kernel.interpolate_curve(
+            &[
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(2.0, 0.0, 0.0),
+            ],
+            2,
+        );
+        let c1 = kernel.interpolate_curve(
+            &[
+                Point3::new(0.0, 0.0, 3.0),
+                Point3::new(1.0, 0.0, 3.0),
+                Point3::new(2.0, 0.0, 3.0),
+            ],
+            2,
+        );
+        let sid = kernel.loft(&[c0, c1], 1);
+        let ((u0, u1), (v0, v1)) = kernel.geom().surface_domain(sid);
+        assert!(u1 > u0, "u domain should be non-degenerate");
+        assert!(v1 > v0, "v domain should be non-degenerate");
+    }
+
+    #[test]
+    fn test_nurbs_extrude() {
+        let mut kernel = Kernel::new();
+        let cid = kernel.interpolate_curve(
+            &[
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            1,
+        );
+        let sid = kernel.nurbs_extrude(cid, Vec3::new(0.0, 0.0, 1.0), 5.0);
+        let ((u0, u1), (v0, v1)) = kernel.geom().surface_domain(sid);
+        // Collect corners and verify all expected ones are present
+        let corners = [
+            kernel.geom().surface_eval(sid, u0, v0),
+            kernel.geom().surface_eval(sid, u1, v0),
+            kernel.geom().surface_eval(sid, u0, v1),
+            kernel.geom().surface_eval(sid, u1, v1),
+        ];
+        let expected = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, 5.0),
+            Point3::new(1.0, 0.0, 5.0),
+        ];
+        for exp in &expected {
+            let min_dist = corners.iter().map(|c| (c - exp).norm()).fold(f64::MAX, f64::min);
+            assert!(min_dist < 1e-6, "Expected corner {:?} not found", exp);
+        }
+    }
+
+    #[test]
+    fn test_nurbs_surface_tessellation() {
+        let mut kernel = Kernel::new();
+        let cid = kernel.interpolate_curve(
+            &[
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(2.0, 1.0, 0.0),
+            ],
+            2,
+        );
+        let sid = kernel.nurbs_extrude(cid, Vec3::new(0.0, 0.0, 1.0), 3.0);
+        let mesh = kernel.geom().tessellate_surface(sid, 8, 8);
+        assert!(mesh.is_some(), "Should produce a mesh");
+        let mesh = mesh.unwrap();
+        assert!(mesh.triangle_count() > 0, "Mesh should have triangles");
+        assert_eq!(mesh.positions.len(), 81); // 9x9 grid
+        assert_eq!(mesh.triangle_count(), 128); // 8x8 quads x 2 tris
     }
 }
