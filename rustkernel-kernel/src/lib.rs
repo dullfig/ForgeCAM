@@ -9,9 +9,11 @@ use rustkernel_topology::topo::*;
 use tracing::info_span;
 
 use rustkernel_builders::box_builder::make_box_into;
+use rustkernel_builders::chamfer_builder::{self, chamfer_edges_into};
 use rustkernel_builders::cone_builder::make_cone_into;
 use rustkernel_builders::cylinder_builder::make_cylinder_into;
 use rustkernel_builders::extrude_builder::make_extrude_into;
+use rustkernel_builders::fillet_builder::{self, fillet_edges_into};
 use rustkernel_builders::nurbs_extrude_builder::make_nurbs_extrude_solid_into;
 use rustkernel_builders::nurbs_revolve_builder::make_nurbs_revolve_solid_into;
 use rustkernel_builders::revolve_builder::make_revolve_into;
@@ -258,6 +260,33 @@ impl Kernel {
     /// Revolve a closed 3D profile polygon around an axis.
     pub fn revolve(&mut self, profile: &[Point3], axis_origin: Point3, axis_dir: Vec3, angle: f64) -> SolidIdx {
         make_revolve_into(&mut self.topo, &mut self.geom, profile, axis_origin, axis_dir, angle, 32)
+    }
+
+    // --- Chamfer & Fillet ---
+
+    /// Apply a constant-distance chamfer to straight edges between planar faces.
+    /// All edges must be convex and no two edges may share a vertex.
+    pub fn chamfer_edges(
+        &mut self,
+        solid: SolidIdx,
+        edges: &[EdgeIdx],
+        distance: f64,
+    ) -> Result<SolidIdx, chamfer_builder::ChamferError> {
+        let _span = info_span!("kernel.chamfer_edges", solid = solid.raw(), n_edges = edges.len(), distance).entered();
+        chamfer_edges_into(&mut self.topo, &mut self.geom, solid, edges, distance)
+    }
+
+    /// Apply a constant-radius fillet to straight edges between planar faces.
+    /// All edges must be convex and no two edges may share a vertex.
+    /// Uses 8 arc segments by default.
+    pub fn fillet_edges(
+        &mut self,
+        solid: SolidIdx,
+        edges: &[EdgeIdx],
+        radius: f64,
+    ) -> Result<SolidIdx, fillet_builder::FilletError> {
+        let _span = info_span!("kernel.fillet_edges", solid = solid.raw(), n_edges = edges.len(), radius).entered();
+        fillet_edges_into(&mut self.topo, &mut self.geom, solid, edges, radius, 8)
     }
 
     // --- NURBS ---
