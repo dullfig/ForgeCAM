@@ -8,6 +8,7 @@ rustkernel-math = { path = "../rustkernel-math" }
 rustkernel-topology = { path = "../rustkernel-topology" }
 rustkernel-geom = { path = "../rustkernel-geom" }
 rustkernel-solvers = { path = "../rustkernel-solvers" }
+tracing = "0.1"
 
 [dev-dependencies]
 rustkernel-builders = { path = "../rustkernel-builders" }

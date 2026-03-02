@@ -2,9 +2,11 @@ use std::collections::HashMap;
 
 use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
+use rustkernel_topology::diagnostics::{self, DiagnosticReport};
 use rustkernel_topology::intersection::IntersectionPipeline;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_builders::box_builder::make_box_into;
 use rustkernel_builders::cone_builder::make_cone_into;
@@ -151,6 +153,7 @@ impl Kernel {
         a: SolidIdx,
         b: SolidIdx,
     ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
+        let _span = info_span!("kernel.fuse", a = a.raw(), b = b.raw()).entered();
         rustkernel_boolean::ops::boolean_op(
             &mut self.topo,
             &mut self.geom,
@@ -167,6 +170,7 @@ impl Kernel {
         a: SolidIdx,
         b: SolidIdx,
     ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
+        let _span = info_span!("kernel.cut", a = a.raw(), b = b.raw()).entered();
         rustkernel_boolean::ops::boolean_op(
             &mut self.topo,
             &mut self.geom,
@@ -183,6 +187,7 @@ impl Kernel {
         a: SolidIdx,
         b: SolidIdx,
     ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
+        let _span = info_span!("kernel.common", a = a.raw(), b = b.raw()).entered();
         rustkernel_boolean::ops::boolean_op(
             &mut self.topo,
             &mut self.geom,
@@ -198,6 +203,7 @@ impl Kernel {
         &mut self,
         solids: &[SolidIdx],
     ) -> Result<SolidIdx, rustkernel_boolean::ops::BooleanError> {
+        let _span = info_span!("kernel.fuse_many", count = solids.len()).entered();
         if solids.is_empty() {
             return Err(rustkernel_boolean::ops::BooleanError::DegenerateInput(
                 "empty list".into(),
@@ -354,6 +360,11 @@ impl Kernel {
             32,
             32,
         )
+    }
+
+    /// Validate a solid's topology, returning a diagnostic report.
+    pub fn validate_solid(&self, solid: SolidIdx) -> DiagnosticReport {
+        diagnostics::validate_solid(&self.topo, solid)
     }
 }
 

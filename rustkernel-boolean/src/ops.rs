@@ -9,6 +9,7 @@ use rustkernel_topology::intersection::{
 };
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::{FaceIdx, SolidIdx};
+use tracing::{debug, info_span, warn};
 
 use crate::broad_phase::find_interfering_face_pairs;
 use crate::curve_trimming::{
@@ -63,8 +64,11 @@ pub fn boolean_op(
     solid_b: SolidIdx,
     op: BooleanOp,
 ) -> Result<SolidIdx, BooleanError> {
+    let _span = info_span!("boolean_op", ?op, a = solid_a.raw(), b = solid_b.raw()).entered();
+
     // Step 1: Broad phase — find potentially interfering face pairs.
     let pairs = find_interfering_face_pairs(topo, geom, solid_a, solid_b, 1e-8);
+    debug!(pairs = pairs.len(), "broad phase complete");
 
     // Step 2: Surface-surface intersection + curve trimming.
     // Track which faces have intersection segments.
@@ -78,7 +82,15 @@ pub fn boolean_op(
         let result = pipeline.solve(geom, sid_a, sid_b);
         let ssi_result = match result {
             Ok(r) => r,
-            Err(_) => continue,
+            Err(e) => {
+                warn!(
+                    face_a = face_a.raw(),
+                    face_b = face_b.raw(),
+                    error = %e,
+                    "SSI failed, skipping face pair"
+                );
+                continue;
+            }
         };
 
         match ssi_result {
@@ -150,9 +162,16 @@ pub fn boolean_op(
     let classified_b = classify_and_split_faces(
         topo, geom, &faces_b, &segments_for_face_b, solid_a,
     );
+    debug!(a_count = classified_a.len(), b_count = classified_b.len(), "faces classified");
 
     // Step 4: Select faces based on boolean operation.
     let selected = select_faces(op, &classified_a, &classified_b);
+    debug!(
+        keep_a = selected.keep_from_a.len(),
+        keep_b = selected.keep_from_b.len(),
+        flip_b = selected.flip_from_b.len(),
+        "faces selected"
+    );
 
     // Step 5: Build result solid.
     let result = build_result_solid(topo, geom, &selected)?;

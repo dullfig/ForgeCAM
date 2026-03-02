@@ -4,6 +4,7 @@ use rustkernel_math::Point3;
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_geom::{AnalyticalGeomStore, LineSegment, SphereSurface, SurfaceDef};
 
@@ -23,6 +24,7 @@ pub fn make_sphere_into(
     n_lon: usize,
     n_lat: usize,
 ) -> SolidIdx {
+    let _span = info_span!("make_sphere", radius, n_lon, n_lat).entered();
     assert!(n_lon >= 3);
     assert!(n_lat >= 2);
 

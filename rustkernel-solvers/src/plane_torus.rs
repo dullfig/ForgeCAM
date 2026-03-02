@@ -4,6 +4,7 @@ use rustkernel_topology::intersection::{
     IntersectionCircle, IntersectionCurve, IntersectionError, SurfaceSurfaceResult,
     SurfaceSurfaceSolver, INTERSECTION_TOLERANCE,
 };
+use tracing::debug;
 
 /// Plane-torus intersection solver (special cases only).
 ///
@@ -102,6 +103,7 @@ impl SurfaceSurfaceSolver for PlaneTorusSolver {
         a: &SurfaceKind,
         b: &SurfaceKind,
     ) -> Result<SurfaceSurfaceResult, IntersectionError> {
+        debug!("plane_torus solve");
         match (a, b) {
             (
                 SurfaceKind::Plane { origin, normal },

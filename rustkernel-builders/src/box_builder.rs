@@ -5,6 +5,7 @@ use rustkernel_topology::arena::Idx;
 use rustkernel_topology::geom_store::GeomAccess;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_geom::{AnalyticalGeomStore, LineSegment, Plane};
 
@@ -27,6 +28,7 @@ pub fn make_box_into(
     dy: f64,
     dz: f64,
 ) -> SolidIdx {
+    let _span = info_span!("make_box", dx, dy, dz).entered();
     let hx = dx / 2.0;
     let hy = dy / 2.0;
     let hz = dz / 2.0;

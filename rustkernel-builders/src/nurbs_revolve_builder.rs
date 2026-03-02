@@ -6,6 +6,7 @@ use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_geom::{AnalyticalGeomStore, Plane, SurfaceDef};
 
@@ -52,6 +53,7 @@ pub fn make_nurbs_revolve_solid_into(
     n_profile_segments: usize,
     n_angular_segments: usize,
 ) -> SolidIdx {
+    let _span = info_span!("make_nurbs_revolve", angle, n_profile_segments, n_angular_segments).entered();
     assert!(n_profile_segments >= 3, "Need at least 3 profile segments");
     assert!(n_angular_segments >= 3, "Need at least 3 angular segments");
     assert!(angle > 0.0, "Angle must be positive");

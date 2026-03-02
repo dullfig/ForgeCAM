@@ -4,6 +4,7 @@ use rustkernel_topology::intersection::{
     IntersectionCircle, IntersectionCurve, IntersectionError, SurfaceSurfaceResult,
     SurfaceSurfaceSolver, INTERSECTION_TOLERANCE,
 };
+use tracing::debug;
 
 /// Analytical plane-sphere intersection solver.
 ///
@@ -58,6 +59,7 @@ impl SurfaceSurfaceSolver for PlaneSphereSolver {
         a: &SurfaceKind,
         b: &SurfaceKind,
     ) -> Result<SurfaceSurfaceResult, IntersectionError> {
+        debug!("plane_sphere solve");
         match (a, b) {
             (
                 SurfaceKind::Plane { origin, normal },

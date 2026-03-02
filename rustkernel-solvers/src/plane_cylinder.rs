@@ -4,6 +4,7 @@ use rustkernel_topology::intersection::{
     IntersectionCircle, IntersectionCurve, IntersectionEllipse, IntersectionError,
     SurfaceSurfaceResult, SurfaceSurfaceSolver, INTERSECTION_TOLERANCE,
 };
+use tracing::debug;
 
 /// Analytical plane-cylinder intersection solver.
 ///
@@ -104,6 +105,7 @@ impl SurfaceSurfaceSolver for PlaneCylinderSolver {
         a: &SurfaceKind,
         b: &SurfaceKind,
     ) -> Result<SurfaceSurfaceResult, IntersectionError> {
+        debug!("plane_cylinder solve");
         match (a, b) {
             (
                 SurfaceKind::Plane { origin, normal },

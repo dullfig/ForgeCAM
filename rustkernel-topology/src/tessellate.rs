@@ -2,6 +2,7 @@ use crate::geom_store::{GeomAccess, SurfaceKind};
 use crate::mesh_cache::FaceMesh;
 use crate::store::TopoStore;
 use crate::topo::*;
+use tracing::warn;
 
 /// Options controlling tessellation quality for curved surfaces.
 pub struct TessellationOptions {
@@ -129,6 +130,14 @@ fn tessellate_curved_face(topo: &mut TopoStore, face_idx: FaceIdx, geom: &dyn Ge
         // Compute the surface normal at this vertex's position using inverse mapping.
         let (u, v) = geom.surface_inverse_uv(surface_id, &pos);
         let normal = geom.surface_normal(surface_id, u, v);
+
+        if normal.norm() < 0.5 {
+            warn!(
+                face = face_idx.raw(),
+                surface = surface_id,
+                "degenerate normal during tessellation"
+            );
+        }
 
         positions.push(pos);
         normals.push(normal);

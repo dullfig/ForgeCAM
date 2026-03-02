@@ -1,13 +1,17 @@
 use std::marker::PhantomData;
 
 /// Type-safe index into an Arena<T>.
-#[derive(Debug)]
 pub struct Idx<T> {
     raw: u32,
     _marker: PhantomData<T>,
 }
 
-// Manual impls to avoid requiring T: Clone/Copy/etc.
+// Manual impls to avoid requiring T: Clone/Copy/Debug/etc.
+impl<T> std::fmt::Debug for Idx<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Idx({})", self.raw)
+    }
+}
 impl<T> Clone for Idx<T> {
     fn clone(&self) -> Self {
         *self

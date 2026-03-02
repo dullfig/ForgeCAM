@@ -4,6 +4,7 @@ use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_geom::{
     AnalyticalGeomStore, CylinderSurface, LineSegment, Plane, SurfaceDef,
@@ -22,6 +23,7 @@ pub fn make_cylinder_into(
     height: f64,
     n_segments: usize,
 ) -> SolidIdx {
+    let _span = info_span!("make_cylinder", radius, height, n_segments).entered();
     assert!(n_segments >= 3);
     let axis = Vec3::new(0.0, 0.0, 1.0);
 

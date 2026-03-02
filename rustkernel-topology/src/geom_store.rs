@@ -1,5 +1,6 @@
 use crate::mesh_cache::FaceMesh;
 use rustkernel_math::{orthonormal_basis, Point3, Vec3};
+use tracing::warn;
 
 /// Classification of a surface with its geometric parameters.
 /// Solvers pattern-match on this to avoid a second round-trip to the geometry store.
@@ -118,6 +119,9 @@ pub fn inverse_map_from_kind(kind: &SurfaceKind, p: &Point3) -> (f64, f64) {
             let v = to_p.dot(&a).atan2(to_p.dot(&radial));
             (u, v)
         }
-        SurfaceKind::Nurbs | SurfaceKind::Unknown => (0.0, 0.0),
+        SurfaceKind::Nurbs | SurfaceKind::Unknown => {
+            warn!("inverse_map_from_kind called on Nurbs/Unknown, returning (0,0)");
+            (0.0, 0.0)
+        }
     }
 }

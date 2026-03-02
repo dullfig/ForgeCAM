@@ -4,6 +4,7 @@ use rustkernel_topology::intersection::{
     IntersectionCircle, IntersectionCurve, IntersectionEllipse, IntersectionError,
     SurfaceSurfaceResult, SurfaceSurfaceSolver, INTERSECTION_TOLERANCE,
 };
+use tracing::debug;
 
 /// Analytical plane-cone intersection solver.
 ///
@@ -129,6 +130,7 @@ impl SurfaceSurfaceSolver for PlaneConeSolver {
         a: &SurfaceKind,
         b: &SurfaceKind,
     ) -> Result<SurfaceSurfaceResult, IntersectionError> {
+        debug!("plane_cone solve");
         match (a, b) {
             (
                 SurfaceKind::Plane { origin, normal },

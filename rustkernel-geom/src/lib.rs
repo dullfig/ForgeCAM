@@ -2,6 +2,7 @@ use curvo::prelude::{NurbsCurve3D, NurbsSurface3D};
 use rustkernel_math::{orthonormal_basis, Mat4, Point3, Vec3};
 use rustkernel_topology::geom_store::{inverse_map_from_kind, CurveKind, GeomAccess, SurfaceKind};
 use rustkernel_topology::mesh_cache::FaceMesh;
+use tracing::warn;
 
 // ── Primitive geometry types ──
 
@@ -281,6 +282,11 @@ fn nurbs_closest_uv(ns: &NurbsSurface3D<f64>, point: &Point3) -> (f64, f64) {
 
         best_u = (best_u + du).clamp(u_min, u_max);
         best_v = (best_v + dv).clamp(v_min, v_max);
+    }
+
+    let final_err = (ns.point_at(best_u, best_v) - point).norm();
+    if final_err > 1e-4 {
+        warn!(error = final_err, u = best_u, v = best_v, "NURBS inverse UV: poor convergence");
     }
 
     (best_u, best_v)

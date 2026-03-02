@@ -4,6 +4,7 @@ use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_geom::{AnalyticalGeomStore, SurfaceDef, TorusSurface};
 
@@ -20,6 +21,7 @@ pub fn make_torus_into(
     n_major: usize,
     n_minor: usize,
 ) -> SolidIdx {
+    let _span = info_span!("make_torus", major_radius, minor_radius, n_major, n_minor).entered();
     assert!(n_major >= 3);
     assert!(n_minor >= 3);
 

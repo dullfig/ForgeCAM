@@ -4,6 +4,7 @@ use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_geom::{
     AnalyticalGeomStore, ConeSurface, Plane, SurfaceDef,
@@ -31,6 +32,7 @@ pub fn make_cone_into(
     height: f64,
     n_segments: usize,
 ) -> SolidIdx {
+    let _span = info_span!("make_cone", r1, r2, height, n_segments).entered();
     assert!(n_segments >= 3);
     assert!(r1 > 0.0);
     assert!(r2 >= 0.0);

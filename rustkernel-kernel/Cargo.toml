@@ -12,3 +12,4 @@ rustkernel-builders = { path = "../rustkernel-builders" }
 rustkernel-boolean = { path = "../rustkernel-boolean" }
 rustkernel-sketch = { path = "../rustkernel-sketch" }
 curvo = "0.1"
+tracing = "0.1"

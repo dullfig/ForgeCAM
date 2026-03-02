@@ -6,6 +6,7 @@ use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::info_span;
 
 use rustkernel_geom::{AnalyticalGeomStore, Plane, SurfaceDef};
 
@@ -26,6 +27,7 @@ pub fn make_nurbs_extrude_solid_into(
     height: f64,
     n_segments: usize,
 ) -> SolidIdx {
+    let _span = info_span!("make_nurbs_extrude", height, n_segments).entered();
     assert!(n_segments >= 3, "Need at least 3 segments");
     assert!(height > 0.0, "Height must be positive");
 

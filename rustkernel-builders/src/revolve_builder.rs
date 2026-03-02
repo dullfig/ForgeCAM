@@ -4,6 +4,7 @@ use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::{info_span, warn};
 
 use rustkernel_geom::{
     AnalyticalGeomStore, ConeSurface, CylinderSurface, Plane, SurfaceDef,
@@ -146,10 +147,18 @@ pub fn make_revolve_into(
     angle: f64,
     n_segments: usize,
 ) -> SolidIdx {
+    let _span = info_span!("make_revolve", profile_len = profile.len(), angle, n_segments).entered();
     let n_profile = profile.len();
     assert!(n_profile >= 3, "Profile must have at least 3 vertices");
     assert!(n_segments >= 3, "Need at least 3 angular segments");
     assert!(angle > 0.0, "Angle must be positive");
+
+    if axis_dir.norm() < 1e-12 {
+        warn!("revolve axis direction is near-zero length");
+    }
+    if n_profile < 3 {
+        warn!(n_profile, "profile has fewer than 3 points");
+    }
 
     let axis_dir = axis_dir.normalize();
     let full_revolve = (angle - std::f64::consts::TAU).abs() < 1e-6;

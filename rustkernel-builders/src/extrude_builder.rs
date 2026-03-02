@@ -4,6 +4,7 @@ use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
+use tracing::{info_span, warn};
 
 use rustkernel_geom::{AnalyticalGeomStore, Plane};
 
@@ -24,9 +25,17 @@ pub fn make_extrude_into(
     direction: Vec3,
     height: f64,
 ) -> SolidIdx {
+    let _span = info_span!("make_extrude", profile_len = profile.len(), height).entered();
     let n = profile.len();
     assert!(n >= 3, "Profile must have at least 3 vertices");
     assert!(height > 0.0, "Height must be positive");
+
+    if direction.norm() < 1e-12 {
+        warn!("extrude direction is near-zero length");
+    }
+    if n < 3 {
+        warn!(n, "profile has fewer than 3 points");
+    }
 
     let dir = direction.normalize();
     let offset = dir * height;
