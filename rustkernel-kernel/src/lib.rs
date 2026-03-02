@@ -10,6 +10,8 @@ use rustkernel_builders::box_builder::make_box_into;
 use rustkernel_builders::cone_builder::make_cone_into;
 use rustkernel_builders::cylinder_builder::make_cylinder_into;
 use rustkernel_builders::extrude_builder::make_extrude_into;
+use rustkernel_builders::nurbs_extrude_builder::make_nurbs_extrude_solid_into;
+use rustkernel_builders::nurbs_revolve_builder::make_nurbs_revolve_solid_into;
 use rustkernel_builders::revolve_builder::make_revolve_into;
 use rustkernel_builders::sphere_builder::make_sphere_into;
 use rustkernel_builders::torus_builder::make_torus_into;
@@ -298,6 +300,61 @@ impl Kernel {
     pub fn add_nurbs_surface(&mut self, surface: NurbsSurface3D<f64>) -> u32 {
         self.geom.add_nurbs_surface(surface)
     }
+
+    // --- NURBS Solid Builders ---
+
+    /// Extrude a NURBS curve into a solid along direction * height.
+    /// The curve must be closed (start ≈ end). Returns a SolidIdx.
+    pub fn make_nurbs_extrude_solid(
+        &mut self,
+        curve_id: u32,
+        direction: Vec3,
+        height: f64,
+    ) -> SolidIdx {
+        let curve = match &self.geom.curves[curve_id as usize] {
+            CurveDef::Nurbs(nc) => nc.clone(),
+            _ => panic!(
+                "make_nurbs_extrude_solid requires a NURBS curve, curve {} is not NURBS",
+                curve_id
+            ),
+        };
+        make_nurbs_extrude_solid_into(
+            &mut self.topo,
+            &mut self.geom,
+            &curve,
+            direction,
+            height,
+            32,
+        )
+    }
+
+    /// Revolve a NURBS curve into a solid around an axis.
+    /// The curve must be closed (start ≈ end). Returns a SolidIdx.
+    pub fn make_nurbs_revolve_solid(
+        &mut self,
+        curve_id: u32,
+        axis_origin: Point3,
+        axis_dir: Vec3,
+        angle: f64,
+    ) -> SolidIdx {
+        let curve = match &self.geom.curves[curve_id as usize] {
+            CurveDef::Nurbs(nc) => nc.clone(),
+            _ => panic!(
+                "make_nurbs_revolve_solid requires a NURBS curve, curve {} is not NURBS",
+                curve_id
+            ),
+        };
+        make_nurbs_revolve_solid_into(
+            &mut self.topo,
+            &mut self.geom,
+            &curve,
+            axis_origin,
+            axis_dir,
+            angle,
+            32,
+            32,
+        )
+    }
 }
 
 impl Default for Kernel {
@@ -545,8 +602,13 @@ mod tests {
     use std::collections::HashSet;
 
     fn verify_euler(topo: &TopoStore, solid: SolidIdx) {
+        verify_euler_genus(topo, solid);
+    }
+
+    fn verify_euler_genus(topo: &TopoStore, solid: SolidIdx) {
         let shell_idx = topo.solids.get(solid).shell;
         let faces = &topo.shells.get(shell_idx).faces;
+        let genus = topo.solids.get(solid).genus;
 
         let mut verts = HashSet::new();
         let mut edges = HashSet::new();
@@ -568,7 +630,12 @@ mod tests {
         let v = verts.len() as i32;
         let e = edges.len() as i32;
         let f = faces.len() as i32;
-        assert_eq!(v - e + f, 2, "Euler: V({v}) - E({e}) + F({f}) != 2");
+        let expected = 2 - 2 * genus as i32;
+        assert_eq!(
+            v - e + f, expected,
+            "Euler: V({v}) - E({e}) + F({f}) = {} != {expected} (genus={genus})",
+            v - e + f
+        );
     }
 
     fn verify_all_twins(topo: &TopoStore, solid: SolidIdx) {
@@ -1363,5 +1430,101 @@ mod tests {
         assert!(mesh.triangle_count() > 0, "Mesh should have triangles");
         assert_eq!(mesh.positions.len(), 81); // 9x9 grid
         assert_eq!(mesh.triangle_count(), 128); // 8x8 quads x 2 tris
+    }
+
+    // --- NURBS Solid Builder integration tests ---
+
+    /// Helper: create a closed NURBS curve for testing.
+    fn make_closed_nurbs_curve(kernel: &mut Kernel) -> u32 {
+        let pts = vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(-1.0, 0.0, 0.0),
+            Point3::new(0.0, -1.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0), // close the loop
+        ];
+        kernel.interpolate_curve(&pts, 3)
+    }
+
+    #[test]
+    fn test_kernel_nurbs_extrude_solid() {
+        let mut kernel = Kernel::new();
+        let cid = make_closed_nurbs_curve(&mut kernel);
+        let solid = kernel.make_nurbs_extrude_solid(cid, Vec3::new(0.0, 0.0, 1.0), 2.0);
+
+        verify_euler(&kernel.topo, solid);
+        verify_all_twins(&kernel.topo, solid);
+
+        // Tessellate and verify
+        let shell = kernel.topo.solids.get(solid).shell;
+        tessellate_shell(&mut kernel.topo, shell, &kernel.geom);
+
+        let mut total_tris = 0;
+        for &face_idx in &kernel.topo.shells.get(shell).faces.clone() {
+            let mesh = kernel.topo.faces.get(face_idx).mesh_cache.as_ref()
+                .expect("Face should be tessellated");
+            total_tris += mesh.triangle_count();
+        }
+        assert!(total_tris > 0, "NURBS extrude solid should have triangles");
+    }
+
+    #[test]
+    fn test_kernel_nurbs_revolve_solid() {
+        let mut kernel = Kernel::new();
+
+        // Closed curve off the Z axis for revolve
+        let pts = vec![
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(3.0, 0.0, 0.5),
+            Point3::new(3.0, 0.0, 1.0),
+            Point3::new(2.0, 0.0, 1.0),
+            Point3::new(2.0, 0.0, 0.0),
+        ];
+        let cid = kernel.interpolate_curve(&pts, 3);
+        let solid = kernel.make_nurbs_revolve_solid(
+            cid,
+            Point3::origin(),
+            Vec3::new(0.0, 0.0, 1.0),
+            std::f64::consts::TAU,
+        );
+
+        verify_euler_genus(&kernel.topo, solid);
+        verify_all_twins(&kernel.topo, solid);
+        assert_eq!(kernel.topo.solids.get(solid).genus, 1);
+
+        // Tessellate and verify
+        let shell = kernel.topo.solids.get(solid).shell;
+        tessellate_shell(&mut kernel.topo, shell, &kernel.geom);
+
+        let mut total_tris = 0;
+        for &face_idx in &kernel.topo.shells.get(shell).faces.clone() {
+            let mesh = kernel.topo.faces.get(face_idx).mesh_cache.as_ref()
+                .expect("Face should be tessellated");
+            total_tris += mesh.triangle_count();
+        }
+        assert!(total_tris > 0, "NURBS revolve solid should have triangles");
+    }
+
+    #[test]
+    fn test_nurbs_solid_tessellation_normals() {
+        let mut kernel = Kernel::new();
+        let cid = make_closed_nurbs_curve(&mut kernel);
+        let solid = kernel.make_nurbs_extrude_solid(cid, Vec3::new(0.0, 0.0, 1.0), 2.0);
+
+        let shell = kernel.topo.solids.get(solid).shell;
+        tessellate_shell(&mut kernel.topo, shell, &kernel.geom);
+
+        for &face_idx in &kernel.topo.shells.get(shell).faces.clone() {
+            let mesh = kernel.topo.faces.get(face_idx).mesh_cache.as_ref()
+                .expect("Face should be tessellated");
+            for (i, n) in mesh.normals.iter().enumerate() {
+                let len = n.norm();
+                assert!(
+                    len > 0.5,
+                    "Face {} vertex {} has degenerate normal: {:?} (len={})",
+                    face_idx.raw(), i, n, len
+                );
+            }
+        }
     }
 }

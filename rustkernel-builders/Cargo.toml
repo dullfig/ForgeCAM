@@ -7,3 +7,4 @@ edition = "2021"
 rustkernel-math = { path = "../rustkernel-math" }
 rustkernel-topology = { path = "../rustkernel-topology" }
 rustkernel-geom = { path = "../rustkernel-geom" }
+curvo = "0.1"

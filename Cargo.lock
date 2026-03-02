@@ -1443,6 +1443,7 @@ dependencies = [
 name = "rustkernel-builders"
 version = "0.1.0"
 dependencies = [
+ "curvo",
  "rustkernel-geom",
  "rustkernel-math",
  "rustkernel-topology",

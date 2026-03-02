@@ -1,5 +1,5 @@
 use crate::mesh_cache::FaceMesh;
-use rustkernel_math::{Point3, Vec3};
+use rustkernel_math::{orthonormal_basis, Point3, Vec3};
 
 /// Classification of a surface with its geometric parameters.
 /// Solvers pattern-match on this to avoid a second round-trip to the geometry store.
@@ -63,5 +63,61 @@ pub trait GeomAccess {
     /// Tessellate a surface into a mesh (used for NURBS; analytical surfaces return None).
     fn tessellate_surface(&self, _surface_id: u32, _divs_u: usize, _divs_v: usize) -> Option<FaceMesh> {
         None
+    }
+
+    /// Inverse-map a 3D point to (u,v) parametric coordinates on a surface.
+    /// Default implementation uses analytical closed-form formulas via `surface_kind`.
+    fn surface_inverse_uv(&self, surface_id: u32, point: &Point3) -> (f64, f64) {
+        let kind = self.surface_kind(surface_id);
+        inverse_map_from_kind(&kind, point)
+    }
+}
+
+/// Closed-form inverse mapping from 3D point to (u, v) parametric coordinates for analytical surfaces.
+pub fn inverse_map_from_kind(kind: &SurfaceKind, p: &Point3) -> (f64, f64) {
+    match kind {
+        SurfaceKind::Plane { .. } => (0.0, 0.0),
+        SurfaceKind::Cylinder { origin, axis, .. } => {
+            let a = axis.normalize();
+            let (ref_x, ref_y) = orthonormal_basis(&a);
+            let d = p - origin;
+            let v = d.dot(&a);
+            let u = d.dot(&ref_y).atan2(d.dot(&ref_x));
+            (u, v)
+        }
+        SurfaceKind::Sphere { center, .. } => {
+            let d = p - center;
+            let axis = Vec3::new(0.0, 0.0, 1.0);
+            let (ref_x, ref_y) = orthonormal_basis(&axis);
+            let r = d.norm();
+            if r < 1e-15 {
+                return (0.0, 0.0);
+            }
+            let v = (d.dot(&axis) / r).asin();
+            let u = d.dot(&ref_y).atan2(d.dot(&ref_x));
+            (u, v)
+        }
+        SurfaceKind::Cone { apex, axis, .. } => {
+            let a = axis.normalize();
+            let (ref_x, ref_y) = orthonormal_basis(&a);
+            let d = p - apex;
+            let v = d.dot(&a);
+            let u = d.dot(&ref_y).atan2(d.dot(&ref_x));
+            (u, v)
+        }
+        SurfaceKind::Torus { center, axis, major_radius, .. } => {
+            let a = axis.normalize();
+            let (ref_x, ref_y) = orthonormal_basis(&a);
+            let d = p - center;
+            let d_proj_x = d.dot(&ref_x);
+            let d_proj_y = d.dot(&ref_y);
+            let u = d_proj_y.atan2(d_proj_x);
+            let tube_center = *center + *major_radius * (u.cos() * ref_x + u.sin() * ref_y);
+            let to_p = p - tube_center;
+            let radial = u.cos() * ref_x + u.sin() * ref_y;
+            let v = to_p.dot(&a).atan2(to_p.dot(&radial));
+            (u, v)
+        }
+        SurfaceKind::Nurbs | SurfaceKind::Unknown => (0.0, 0.0),
     }
 }

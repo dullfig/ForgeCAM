@@ -2,6 +2,8 @@ pub mod box_builder;
 pub mod cone_builder;
 pub mod cylinder_builder;
 pub mod extrude_builder;
+pub mod nurbs_extrude_builder;
+pub mod nurbs_revolve_builder;
 pub mod revolve_builder;
 pub mod sphere_builder;
 pub mod torus_builder;

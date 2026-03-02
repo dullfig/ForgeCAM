@@ -1,6 +1,6 @@
 use curvo::prelude::{NurbsCurve3D, NurbsSurface3D};
 use rustkernel_math::{orthonormal_basis, Mat4, Point3, Vec3};
-use rustkernel_topology::geom_store::{CurveKind, GeomAccess, SurfaceKind};
+use rustkernel_topology::geom_store::{inverse_map_from_kind, CurveKind, GeomAccess, SurfaceKind};
 use rustkernel_topology::mesh_cache::FaceMesh;
 
 // ── Primitive geometry types ──
@@ -219,6 +219,73 @@ impl Default for AnalyticalGeomStore {
     }
 }
 
+/// Find the closest (u,v) parameters on a NURBS surface to a 3D point.
+/// Uses coarse grid search followed by Gauss-Newton refinement.
+fn nurbs_closest_uv(ns: &NurbsSurface3D<f64>, point: &Point3) -> (f64, f64) {
+    let ((u_min, u_max), (v_min, v_max)) = ns.knots_domain();
+    let u_span = u_max - u_min;
+    let v_span = v_max - v_min;
+
+    // Phase 1: Grid search (8×8)
+    let grid_n = 8;
+    let mut best_u = u_min;
+    let mut best_v = v_min;
+    let mut best_dist2 = f64::MAX;
+
+    for iv in 0..=grid_n {
+        let v = v_min + v_span * iv as f64 / grid_n as f64;
+        for iu in 0..=grid_n {
+            let u = u_min + u_span * iu as f64 / grid_n as f64;
+            let s = ns.point_at(u, v);
+            let d2 = (s - point).norm_squared();
+            if d2 < best_dist2 {
+                best_dist2 = d2;
+                best_u = u;
+                best_v = v;
+            }
+        }
+    }
+
+    // Phase 2: Gauss-Newton refinement (5 iterations)
+    let h = 1e-6 * (u_span + v_span);
+    for _ in 0..5 {
+        let s = ns.point_at(best_u, best_v);
+        let r = point - s;
+
+        if r.norm_squared() < 1e-24 {
+            break;
+        }
+
+        // Finite-difference tangent vectors
+        let s_u = (ns.point_at((best_u + h).min(u_max), best_v)
+            - ns.point_at((best_u - h).max(u_min), best_v))
+            / (2.0 * h);
+        let s_v = (ns.point_at(best_u, (best_v + h).min(v_max))
+            - ns.point_at(best_u, (best_v - h).max(v_min)))
+            / (2.0 * h);
+
+        // 2×2 system: J^T J [du, dv] = J^T r
+        let a00 = s_u.dot(&s_u);
+        let a01 = s_u.dot(&s_v);
+        let a11 = s_v.dot(&s_v);
+        let b0 = r.dot(&s_u);
+        let b1 = r.dot(&s_v);
+
+        let det = a00 * a11 - a01 * a01;
+        if det.abs() < 1e-30 {
+            break;
+        }
+
+        let du = (a11 * b0 - a01 * b1) / det;
+        let dv = (a00 * b1 - a01 * b0) / det;
+
+        best_u = (best_u + du).clamp(u_min, u_max);
+        best_v = (best_v + dv).clamp(v_min, v_max);
+    }
+
+    (best_u, best_v)
+}
+
 impl GeomAccess for AnalyticalGeomStore {
     fn point(&self, point_id: u32) -> Point3 {
         self.points[point_id as usize]
@@ -418,6 +485,16 @@ impl GeomAccess for AnalyticalGeomStore {
         }
     }
 
+    fn surface_inverse_uv(&self, surface_id: u32, point: &Point3) -> (f64, f64) {
+        match &self.surfaces[surface_id as usize] {
+            SurfaceDef::Nurbs(ns) => nurbs_closest_uv(ns, point),
+            _ => {
+                let kind = self.surface_kind(surface_id);
+                inverse_map_from_kind(&kind, point)
+            }
+        }
+    }
+
     fn tessellate_surface(&self, surface_id: u32, divs_u: usize, divs_v: usize) -> Option<FaceMesh> {
         match &self.surfaces[surface_id as usize] {
             SurfaceDef::Nurbs(ns) => {
@@ -599,5 +676,49 @@ mod tests {
         let n = geom.surface_normal(sid, 0.0, 0.0);
         assert!(n.dot(&Vec3::new(0.0, 0.0, 1.0)).abs() < 1e-10, "Normal perpendicular to axis");
         assert!(n.norm() > 0.99);
+    }
+
+    #[test]
+    fn test_nurbs_inverse_uv_extrude() {
+        let mut geom = AnalyticalGeomStore::new();
+        let surface = make_test_surface();
+        let ((u0, u1), (v0, v1)) = surface.knots_domain();
+        let sid = geom.add_nurbs_surface(surface);
+
+        // Pick several points on the surface, verify inverse_uv recovers them
+        let test_params = [
+            (u0, v0),
+            (u1, v1),
+            ((u0 + u1) / 2.0, (v0 + v1) / 2.0),
+            (u0 + (u1 - u0) * 0.25, v0 + (v1 - v0) * 0.75),
+        ];
+        for &(u, v) in &test_params {
+            let pt = geom.surface_eval(sid, u, v);
+            let (u_inv, v_inv) = geom.surface_inverse_uv(sid, &pt);
+            let pt_recon = geom.surface_eval(sid, u_inv, v_inv);
+            let err = (pt - pt_recon).norm();
+            assert!(
+                err < 1e-4,
+                "Inverse UV error too large: {} at ({}, {}) -> ({}, {})",
+                err, u, v, u_inv, v_inv
+            );
+        }
+    }
+
+    #[test]
+    fn test_nurbs_inverse_uv_analytical_unchanged() {
+        // Verify that analytical surfaces still work through the new surface_inverse_uv path
+        let mut geom = AnalyticalGeomStore::new();
+        let sid = geom.add_surface(SurfaceDef::Cylinder(CylinderSurface {
+            origin: Point3::origin(),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+        }));
+
+        let p = geom.surface_eval(sid, 1.0, 3.0);
+        let (u, v) = geom.surface_inverse_uv(sid, &p);
+        // For cylinder: u should be ~1.0, v should be ~3.0
+        assert!((u - 1.0).abs() < 1e-6, "u mismatch: {u}");
+        assert!((v - 3.0).abs() < 1e-6, "v mismatch: {v}");
     }
 }

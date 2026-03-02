@@ -42,7 +42,15 @@ pub fn tessellate_face_with_options(
     match kind {
         SurfaceKind::Plane { .. } => tessellate_planar_face(topo, face_idx, geom),
         SurfaceKind::Nurbs => {
-            if let Some(mesh) = geom.tessellate_surface(surface_id, 16, 16) {
+            // Check if face has a real boundary loop (solid face) vs standalone surface
+            let face = topo.faces.get(face_idx);
+            let loop_idx = face.outer_loop;
+            let start_he = topo.loops.get(loop_idx).half_edge;
+            let he = topo.half_edges.get(start_he);
+            // If the face has actual boundary vertices (more than 1 edge), tessellate via boundary
+            if he.next != start_he {
+                tessellate_curved_face(topo, face_idx, geom);
+            } else if let Some(mesh) = geom.tessellate_surface(surface_id, 16, 16) {
                 topo.faces.get_mut(face_idx).mesh_cache = Some(mesh);
             }
         }
@@ -107,7 +115,6 @@ fn tessellate_curved_face(topo: &mut TopoStore, face_idx: FaceIdx, geom: &dyn Ge
     let surface_id = face.surface_id;
     let loop_idx = face.outer_loop;
     let start_he = topo.loops.get(loop_idx).half_edge;
-    let kind = geom.surface_kind(surface_id);
 
     let mut positions = Vec::new();
     let mut normals = Vec::new();
@@ -120,7 +127,7 @@ fn tessellate_curved_face(topo: &mut TopoStore, face_idx: FaceIdx, geom: &dyn Ge
         let pos = geom.point(vert.point_id);
 
         // Compute the surface normal at this vertex's position using inverse mapping.
-        let (u, v) = inverse_map(&kind, &pos);
+        let (u, v) = geom.surface_inverse_uv(surface_id, &pos);
         let normal = geom.surface_normal(surface_id, u, v);
 
         positions.push(pos);
@@ -151,57 +158,6 @@ fn tessellate_curved_face(topo: &mut TopoStore, face_idx: FaceIdx, geom: &dyn Ge
     };
 
     topo.faces.get_mut(face_idx).mesh_cache = Some(mesh);
-}
-
-/// Closed-form inverse mapping from 3D point to (u, v) parametric coordinates for each quadric.
-fn inverse_map(kind: &SurfaceKind, p: &rustkernel_math::Point3) -> (f64, f64) {
-    use rustkernel_math::orthonormal_basis;
-
-    match kind {
-        SurfaceKind::Plane { .. } => (0.0, 0.0),
-        SurfaceKind::Cylinder { origin, axis, .. } => {
-            let a = axis.normalize();
-            let (ref_x, ref_y) = orthonormal_basis(&a);
-            let d = p - origin;
-            let v = d.dot(&a);
-            let u = d.dot(&ref_y).atan2(d.dot(&ref_x));
-            (u, v)
-        }
-        SurfaceKind::Sphere { center, .. } => {
-            let d = p - center;
-            let axis = rustkernel_math::Vec3::new(0.0, 0.0, 1.0);
-            let (ref_x, ref_y) = orthonormal_basis(&axis);
-            let r = d.norm();
-            if r < 1e-15 {
-                return (0.0, 0.0);
-            }
-            let v = (d.dot(&axis) / r).asin();
-            let u = d.dot(&ref_y).atan2(d.dot(&ref_x));
-            (u, v)
-        }
-        SurfaceKind::Cone { apex, axis, .. } => {
-            let a = axis.normalize();
-            let (ref_x, ref_y) = orthonormal_basis(&a);
-            let d = p - apex;
-            let v = d.dot(&a);
-            let u = d.dot(&ref_y).atan2(d.dot(&ref_x));
-            (u, v)
-        }
-        SurfaceKind::Torus { center, axis, major_radius, .. } => {
-            let a = axis.normalize();
-            let (ref_x, ref_y) = orthonormal_basis(&a);
-            let d = p - center;
-            let d_proj_x = d.dot(&ref_x);
-            let d_proj_y = d.dot(&ref_y);
-            let u = d_proj_y.atan2(d_proj_x);
-            let tube_center = *center + *major_radius * (u.cos() * ref_x + u.sin() * ref_y);
-            let to_p = p - tube_center;
-            let radial = u.cos() * ref_x + u.sin() * ref_y;
-            let v = to_p.dot(&a).atan2(to_p.dot(&radial));
-            (u, v)
-        }
-        SurfaceKind::Nurbs | SurfaceKind::Unknown => (0.0, 0.0),
-    }
 }
 
 /// Tessellate all faces of a shell.
