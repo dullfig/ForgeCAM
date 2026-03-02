@@ -8,7 +8,7 @@ use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 use tracing::info_span;
 
-use rustkernel_geom::{AnalyticalGeomStore, Plane, SurfaceDef};
+use rustkernel_geom::{AnalyticalGeomStore, FlippableNurbs, Plane, SurfaceDef};
 
 use crate::cylinder_builder::{build_face_from_vert_idxs, match_twins_from_map};
 
@@ -68,7 +68,10 @@ pub fn make_nurbs_extrude_solid_into(
 
     // Create the NURBS extrusion surface.
     let nurbs_surface = NurbsSurface3D::<f64>::extrude(curve, &offset);
-    let nurbs_surface_id = geom.add_surface(SurfaceDef::Nurbs(nurbs_surface));
+    let nurbs_surface_id = geom.add_surface(SurfaceDef::Nurbs(FlippableNurbs {
+        surface: nurbs_surface,
+        flipped: false,
+    }));
 
     // Planar cap surfaces.
     let bottom_surface_id = geom.add_plane(Plane {

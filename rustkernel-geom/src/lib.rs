@@ -82,6 +82,13 @@ pub struct EllipseCurve {
     pub major_dir: Vec3,
 }
 
+/// A NURBS surface with an orientation flag for normal flipping.
+#[derive(Debug, Clone)]
+pub struct FlippableNurbs {
+    pub surface: NurbsSurface3D<f64>,
+    pub flipped: bool,
+}
+
 // ── Storage enums ──
 
 /// Polymorphic surface definition stored in the geometry store.
@@ -92,7 +99,7 @@ pub enum SurfaceDef {
     Sphere(SphereSurface),
     Cone(ConeSurface),
     Torus(TorusSurface),
-    Nurbs(NurbsSurface3D<f64>),
+    Nurbs(FlippableNurbs),
 }
 
 impl SurfaceDef {
@@ -104,7 +111,7 @@ impl SurfaceDef {
             SurfaceDef::Sphere(s) => s.radius = -s.radius,
             SurfaceDef::Cone(c) => c.half_angle = -c.half_angle,
             SurfaceDef::Torus(t) => t.minor_radius = -t.minor_radius,
-            SurfaceDef::Nurbs(_) => {} // no-op: NURBS booleans not yet supported
+            SurfaceDef::Nurbs(ns) => ns.flipped = !ns.flipped,
         }
     }
 
@@ -119,7 +126,7 @@ impl SurfaceDef {
             SurfaceDef::Nurbs(ns) => {
                 use curvo::prelude::Transformable;
                 let m = Mat4::new_translation(delta);
-                ns.transform(&m);
+                ns.surface.transform(&m);
             }
         }
     }
@@ -210,7 +217,7 @@ impl AnalyticalGeomStore {
 
     /// Add a NURBS surface.
     pub fn add_nurbs_surface(&mut self, surface: NurbsSurface3D<f64>) -> u32 {
-        self.add_surface(SurfaceDef::Nurbs(surface))
+        self.add_surface(SurfaceDef::Nurbs(FlippableNurbs { surface, flipped: false }))
     }
 }
 
@@ -410,7 +417,7 @@ impl GeomAccess for AnalyticalGeomStore {
                     + (big_r + small_r * v.cos()) * (u.cos() * ref_x + u.sin() * ref_y)
                     + small_r * v.sin() * tor.axis
             }
-            SurfaceDef::Nurbs(ns) => ns.point_at(u, v),
+            SurfaceDef::Nurbs(ns) => ns.surface.point_at(u, v),
         }
     }
 
@@ -440,9 +447,10 @@ impl GeomAccess for AnalyticalGeomStore {
                 if tor.minor_radius < 0.0 { -n } else { n }
             }
             SurfaceDef::Nurbs(ns) => {
-                let n = ns.normal_at(u, v);
+                let n = ns.surface.normal_at(u, v);
                 let len = n.norm();
-                if len > 1e-15 { n / len } else { Vec3::new(0.0, 0.0, 1.0) }
+                let normalized = if len > 1e-15 { n / len } else { Vec3::new(0.0, 0.0, 1.0) };
+                if ns.flipped { -normalized } else { normalized }
             }
         }
     }
@@ -486,14 +494,14 @@ impl GeomAccess for AnalyticalGeomStore {
 
     fn surface_domain(&self, surface_id: u32) -> ((f64, f64), (f64, f64)) {
         match &self.surfaces[surface_id as usize] {
-            SurfaceDef::Nurbs(ns) => ns.knots_domain(),
+            SurfaceDef::Nurbs(ns) => ns.surface.knots_domain(),
             _ => ((0.0, 1.0), (0.0, 1.0)),
         }
     }
 
     fn surface_inverse_uv(&self, surface_id: u32, point: &Point3) -> (f64, f64) {
         match &self.surfaces[surface_id as usize] {
-            SurfaceDef::Nurbs(ns) => nurbs_closest_uv(ns, point),
+            SurfaceDef::Nurbs(ns) => nurbs_closest_uv(&ns.surface, point),
             _ => {
                 let kind = self.surface_kind(surface_id);
                 inverse_map_from_kind(&kind, point)
@@ -504,7 +512,8 @@ impl GeomAccess for AnalyticalGeomStore {
     fn tessellate_surface(&self, surface_id: u32, divs_u: usize, divs_v: usize) -> Option<FaceMesh> {
         match &self.surfaces[surface_id as usize] {
             SurfaceDef::Nurbs(ns) => {
-                let ((u_min, u_max), (v_min, v_max)) = ns.knots_domain();
+                let ((u_min, u_max), (v_min, v_max)) = ns.surface.knots_domain();
+                let flip = ns.flipped;
                 let mut positions = Vec::with_capacity((divs_u + 1) * (divs_v + 1));
                 let mut normals = Vec::with_capacity((divs_u + 1) * (divs_v + 1));
                 let mut uvs = Vec::with_capacity((divs_u + 1) * (divs_v + 1));
@@ -512,10 +521,11 @@ impl GeomAccess for AnalyticalGeomStore {
                     let v = v_min + (v_max - v_min) * iv as f64 / divs_v as f64;
                     for iu in 0..=divs_u {
                         let u = u_min + (u_max - u_min) * iu as f64 / divs_u as f64;
-                        positions.push(ns.point_at(u, v));
-                        let n = ns.normal_at(u, v);
+                        positions.push(ns.surface.point_at(u, v));
+                        let n = ns.surface.normal_at(u, v);
                         let len = n.norm();
-                        normals.push(if len > 1e-15 { n / len } else { Vec3::new(0.0, 0.0, 1.0) });
+                        let normalized = if len > 1e-15 { n / len } else { Vec3::new(0.0, 0.0, 1.0) };
+                        normals.push(if flip { -normalized } else { normalized });
                         uvs.push([u, v]);
                     }
                 }

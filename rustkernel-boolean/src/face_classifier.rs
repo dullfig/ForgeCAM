@@ -1,6 +1,6 @@
 use rustkernel_math::polygon2d::{PointClassification, Polygon2D};
 use rustkernel_math::{Point3, Vec3};
-use rustkernel_topology::face_util::{face_boundary_points, PlaneFrame};
+use rustkernel_topology::face_util::{face_boundary_points, polygon_centroid_and_normal, PlaneFrame};
 use rustkernel_topology::geom_store::{GeomAccess, SurfaceKind};
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::{FaceIdx, SolidIdx};
@@ -190,7 +190,20 @@ fn ray_cast_classify(
         // Compute ray-surface intersection parameter t.
         let (t, plane_origin, plane_normal) = match ray_surface_intersection(point, ray_dir, &kind) {
             Some(result) => result,
-            None => continue,
+            None => {
+                // Fallback for NURBS (and torus): use best-fit plane from boundary polygon.
+                if matches!(kind, SurfaceKind::Nurbs | SurfaceKind::Torus { .. }) {
+                    let boundary = face_boundary_points(topo, geom, face_idx);
+                    if boundary.len() < 3 { continue; }
+                    let (origin, normal) = polygon_centroid_and_normal(&boundary);
+                    let denom = ray_dir.dot(&normal);
+                    if denom.abs() < 1e-12 { continue; }
+                    let t = (origin - point).dot(&normal) / denom;
+                    (t, origin, normal)
+                } else {
+                    continue;
+                }
+            }
         };
 
         if t < 1e-10 {
@@ -250,7 +263,8 @@ pub fn classify_face(
             // For curved faces, use centroid and surface normal at centroid.
             let boundary = face_boundary_points(topo, geom, face);
             let centroid = compute_centroid(&boundary);
-            let normal = geom.surface_normal(surface_id, 0.0, 0.0);
+            let (u, v) = geom.surface_inverse_uv(surface_id, &centroid);
+            let normal = geom.surface_normal(surface_id, u, v);
             (centroid, normal)
         }
     };

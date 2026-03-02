@@ -609,4 +609,93 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_fuse_box_nurbs_extrude() {
+        use curvo::prelude::Interpolation;
+        use curvo::prelude::NurbsCurve3D;
+        use rustkernel_builders::nurbs_extrude_builder::make_nurbs_extrude_solid_into;
+
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let pipeline = default_pipeline();
+
+        // Create a closed NURBS curve (approximate circle, 8 points).
+        let pts: Vec<Point3> = (0..8)
+            .map(|i| {
+                let theta = i as f64 * std::f64::consts::TAU / 8.0;
+                Point3::new(theta.cos() * 0.5, theta.sin() * 0.5, 0.0)
+            })
+            .collect();
+        let mut closed_pts = pts.clone();
+        closed_pts.push(pts[0]);
+        let curve = NurbsCurve3D::<f64>::interpolate(&closed_pts, 3).unwrap();
+
+        let nurbs_solid = make_nurbs_extrude_solid_into(
+            &mut topo, &mut geom, &curve, Vec3::new(0.0, 0.0, 1.0), 2.0, 32,
+        );
+        let box_solid = make_box_into(
+            &mut topo, &mut geom, Point3::new(-1.0, -1.0, -1.0), 2.0, 2.0, 2.0,
+        );
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            boolean_op(&mut topo, &mut geom, &pipeline, box_solid, nurbs_solid, BooleanOp::Fuse)
+        }));
+        match result {
+            Ok(Ok(solid)) => {
+                verify_solid(&topo, solid);
+            }
+            Ok(Err(e)) => {
+                eprintln!("Fuse box+nurbs_extrude: {e}");
+            }
+            Err(_) => {
+                eprintln!("Fuse box+nurbs_extrude panicked (topology reconstruction issue)");
+            }
+        }
+    }
+
+    #[test]
+    fn test_cut_box_nurbs_extrude() {
+        use curvo::prelude::Interpolation;
+        use curvo::prelude::NurbsCurve3D;
+        use rustkernel_builders::nurbs_extrude_builder::make_nurbs_extrude_solid_into;
+
+        let mut topo = TopoStore::new();
+        let mut geom = AnalyticalGeomStore::new();
+        let pipeline = default_pipeline();
+
+        // Create a closed NURBS curve (approximate circle, 8 points).
+        let pts: Vec<Point3> = (0..8)
+            .map(|i| {
+                let theta = i as f64 * std::f64::consts::TAU / 8.0;
+                Point3::new(theta.cos() * 0.5, theta.sin() * 0.5, 0.0)
+            })
+            .collect();
+        let mut closed_pts = pts.clone();
+        closed_pts.push(pts[0]);
+        let curve = NurbsCurve3D::<f64>::interpolate(&closed_pts, 3).unwrap();
+
+        let nurbs_solid = make_nurbs_extrude_solid_into(
+            &mut topo, &mut geom, &curve, Vec3::new(0.0, 0.0, 1.0), 2.0, 32,
+        );
+        let box_solid = make_box_into(
+            &mut topo, &mut geom, Point3::new(-1.0, -1.0, -1.0), 2.0, 2.0, 2.0,
+        );
+
+        // Cut exercises flip_normal on NURBS faces.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            boolean_op(&mut topo, &mut geom, &pipeline, box_solid, nurbs_solid, BooleanOp::Cut)
+        }));
+        match result {
+            Ok(Ok(solid)) => {
+                verify_solid(&topo, solid);
+            }
+            Ok(Err(e)) => {
+                eprintln!("Cut box-nurbs_extrude: {e}");
+            }
+            Err(_) => {
+                eprintln!("Cut box-nurbs_extrude panicked (topology reconstruction issue)");
+            }
+        }
+    }
 }

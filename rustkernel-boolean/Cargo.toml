@@ -12,3 +12,4 @@ tracing = "0.1"
 
 [dev-dependencies]
 rustkernel-builders = { path = "../rustkernel-builders" }
+curvo = "0.1"
