@@ -2,7 +2,9 @@ use rustkernel_math::polygon2d::Polygon2D;
 use rustkernel_math::Point3;
 use rustkernel_topology::face_util::{face_boundary_points, polygon_centroid_and_normal, PlaneFrame};
 use rustkernel_topology::geom_store::{GeomAccess, SurfaceKind};
-use rustkernel_topology::intersection::{IntersectionCircle, IntersectionEllipse, IntersectionLine};
+use rustkernel_topology::intersection::{
+    IntersectionCircle, IntersectionEllipse, IntersectionLine, IntersectionPolyline,
+};
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::FaceIdx;
 
@@ -82,7 +84,7 @@ fn sample_ellipse(ell: &IntersectionEllipse, n: usize) -> Vec<Point3> {
 /// For each consecutive pair `(points[i], points[i+1])`, treats the chord as a bounded
 /// line segment, clips it to both face boundaries, and emits `TrimmedSegment`s for the
 /// overlap intervals clamped to [0, 1].
-fn trim_sampled_curve(
+pub fn trim_sampled_curve(
     points: &[Point3],
     topo: &TopoStore,
     geom: &dyn GeomAccess,
@@ -157,6 +159,19 @@ pub fn trim_intersection_ellipse(
 ) -> Vec<TrimmedSegment> {
     let points = sample_ellipse(ellipse, DEFAULT_CHORD_COUNT);
     trim_sampled_curve(&points, topo, geom, face_a, face_b)
+}
+
+/// Trim an intersection polyline to the overlap region of two faces.
+///
+/// Reuses `trim_sampled_curve` since the polyline is already a sequence of points.
+pub fn trim_intersection_polyline(
+    polyline: &IntersectionPolyline,
+    topo: &TopoStore,
+    geom: &dyn GeomAccess,
+    face_a: FaceIdx,
+    face_b: FaceIdx,
+) -> Vec<TrimmedSegment> {
+    trim_sampled_curve(&polyline.points, topo, geom, face_a, face_b)
 }
 
 /// Clip the intersection line to a single face's polygon boundary.

@@ -1,4 +1,5 @@
 pub mod polygon2d;
+pub mod tri_tri;
 
 pub use nalgebra;
 

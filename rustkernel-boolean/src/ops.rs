@@ -13,7 +13,8 @@ use tracing::{debug, info_span, warn};
 
 use crate::broad_phase::find_interfering_face_pairs;
 use crate::curve_trimming::{
-    trim_intersection_circle, trim_intersection_ellipse, trim_intersection_line, TrimmedSegment,
+    trim_intersection_circle, trim_intersection_ellipse, trim_intersection_line,
+    trim_intersection_polyline, TrimmedSegment,
 };
 use crate::face_classifier::{classify_face, FacePosition};
 use crate::face_selector::{select_faces, BooleanOp};
@@ -132,6 +133,20 @@ pub fn boolean_op(
                         IntersectionCurve::Ellipse(ellipse) => {
                             let trimmed =
                                 trim_intersection_ellipse(ellipse, topo, geom, face_a, face_b);
+                            for seg in trimmed {
+                                segments_for_face_a
+                                    .entry(face_a)
+                                    .or_default()
+                                    .push(seg.clone());
+                                segments_for_face_b
+                                    .entry(face_b)
+                                    .or_default()
+                                    .push(seg);
+                            }
+                        }
+                        IntersectionCurve::Polyline(polyline) => {
+                            let trimmed =
+                                trim_intersection_polyline(polyline, topo, geom, face_a, face_b);
                             for seg in trimmed {
                                 segments_for_face_a
                                     .entry(face_a)

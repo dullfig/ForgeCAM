@@ -120,6 +120,16 @@ pub fn section_solid(
                                 segments.push((p0, p1));
                             }
                         }
+                        IntersectionCurve::Polyline(polyline) => {
+                            // Polyline is already a sequence of points; emit consecutive pairs.
+                            for i in 0..polyline.points.len().saturating_sub(1) {
+                                let p0 = polyline.points[i];
+                                let p1 = polyline.points[i + 1];
+                                if (p1 - p0).norm() > 1e-14 {
+                                    segments.push((p0, p1));
+                                }
+                            }
+                        }
                     }
                 }
             }

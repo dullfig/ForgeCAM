@@ -31,13 +31,21 @@ pub struct IntersectionEllipse {
     pub major_dir: Vec3,
 }
 
+/// A polyline approximation of a surface-surface intersection curve.
+/// Used for NURBS and other non-analytical surface pairs.
+#[derive(Debug, Clone)]
+pub struct IntersectionPolyline {
+    pub points: Vec<Point3>,
+}
+
 /// An intersection curve resulting from surface-surface intersection.
-/// Enum rather than trait object — the set of analytical curve types is small and compile-time known.
+/// Enum rather than trait object — the set of curve types is small and compile-time known.
 #[derive(Debug, Clone)]
 pub enum IntersectionCurve {
     Line(IntersectionLine),
     Circle(IntersectionCircle),
     Ellipse(IntersectionEllipse),
+    Polyline(IntersectionPolyline),
 }
 
 /// Result of intersecting two surfaces.
@@ -72,13 +80,27 @@ impl std::fmt::Display for IntersectionError {
 impl std::error::Error for IntersectionError {}
 
 /// Trait for a surface-surface intersection solver.
-/// Solvers work with pure geometry data (`SurfaceKind`), no geom store needed.
+/// Analytical solvers implement `solve`; solvers needing geometry access (e.g. NURBS)
+/// override `solve_with_geom`.
 pub trait SurfaceSurfaceSolver {
     /// Returns true if this solver can handle the given surface pair.
     fn accepts(&self, a: &SurfaceKind, b: &SurfaceKind) -> bool;
 
-    /// Compute the intersection of two surfaces.
+    /// Compute the intersection of two surfaces from their kind data alone.
     fn solve(&self, a: &SurfaceKind, b: &SurfaceKind) -> Result<SurfaceSurfaceResult, IntersectionError>;
+
+    /// Compute the intersection using full geometry access (for NURBS etc.).
+    /// Default delegates to `solve()` via surface kinds.
+    fn solve_with_geom(
+        &self,
+        geom: &dyn GeomAccess,
+        surface_a: u32,
+        surface_b: u32,
+    ) -> Result<SurfaceSurfaceResult, IntersectionError> {
+        let a = geom.surface_kind(surface_a);
+        let b = geom.surface_kind(surface_b);
+        self.solve(&a, &b)
+    }
 }
 
 /// Chain-of-responsibility pipeline: register solvers in order of specificity,
@@ -100,7 +122,8 @@ impl IntersectionPipeline {
     }
 
     /// Intersect two surfaces identified by their geometry indices.
-    /// Extracts `SurfaceKind` from the geom store, then dispatches to solvers.
+    /// Extracts `SurfaceKind` for dispatch, then calls `solve_with_geom` on the first
+    /// solver that accepts, giving it full geometry access for NURBS etc.
     pub fn solve(
         &self,
         geom: &dyn GeomAccess,
@@ -112,7 +135,7 @@ impl IntersectionPipeline {
 
         for solver in &self.solvers {
             if solver.accepts(&a, &b) {
-                return solver.solve(&a, &b);
+                return solver.solve_with_geom(geom, surface_a, surface_b);
             }
         }
 
