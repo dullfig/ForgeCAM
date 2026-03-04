@@ -1,5 +1,6 @@
 pub mod arena;
 pub mod diagnostics;
+pub mod euler;
 pub mod face_util;
 pub mod geom_store;
 pub mod intersection;

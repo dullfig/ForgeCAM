@@ -410,19 +410,9 @@ pub fn fillet_edges_into(
 }
 
 /// Find the half-edge before `target_he` in the loop.
+/// Delegates to the canonical implementation in `euler`.
 fn find_prev_he(topo: &TopoStore, loop_idx: LoopIdx, target_he: HalfEdgeIdx) -> HalfEdgeIdx {
-    let start = topo.loops.get(loop_idx).half_edge;
-    let mut he = start;
-    loop {
-        let next = topo.half_edges.get(he).next;
-        if next == target_he {
-            return he;
-        }
-        he = next;
-        if he == start {
-            panic!("target_he not found in loop");
-        }
-    }
+    rustkernel_topology::euler::find_prev_he(topo, loop_idx, target_he)
 }
 
 #[cfg(test)]

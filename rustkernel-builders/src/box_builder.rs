@@ -162,6 +162,10 @@ pub fn make_box_into(
     let keys: Vec<(u32, u32)> = he_map.keys().cloned().collect();
     for (a, b) in keys {
         if let (Some(&he_ab), Some(&he_ba)) = (he_map.get(&(a, b)), he_map.get(&(b, a))) {
+            // Skip if already matched (each pair is visited twice: as (a,b) and (b,a))
+            if topo.half_edges.get(he_ab).twin.is_some() {
+                continue;
+            }
             topo.half_edges.get_mut(he_ab).twin = Some(he_ba);
             topo.half_edges.get_mut(he_ba).twin = Some(he_ab);
 

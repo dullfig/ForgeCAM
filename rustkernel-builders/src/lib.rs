@@ -3,6 +3,7 @@ pub mod chamfer_builder;
 pub mod cone_builder;
 pub mod cylinder_builder;
 pub mod edge_analysis;
+pub mod euler_chamfer;
 pub mod extrude_builder;
 pub mod fillet_builder;
 pub mod nurbs_extrude_builder;

@@ -11,6 +11,7 @@ use tracing::info_span;
 use rustkernel_builders::box_builder::make_box_into;
 use rustkernel_builders::chamfer_builder::{self, chamfer_edges_into};
 use rustkernel_builders::cone_builder::make_cone_into;
+use rustkernel_builders::euler_chamfer::{self, euler_chamfer_edges};
 use rustkernel_builders::cylinder_builder::make_cylinder_into;
 use rustkernel_builders::extrude_builder::make_extrude_into;
 use rustkernel_builders::fillet_builder::{self, fillet_edges_into};
@@ -274,6 +275,18 @@ impl Kernel {
     ) -> Result<SolidIdx, chamfer_builder::ChamferError> {
         let _span = info_span!("kernel.chamfer_edges", solid = solid.raw(), n_edges = edges.len(), distance).entered();
         chamfer_edges_into(&mut self.topo, &mut self.geom, solid, edges, distance)
+    }
+
+    /// Apply a constant-distance Euler-based chamfer (in-place mutation).
+    /// All edges must be convex and no two edges may share a vertex.
+    pub fn euler_chamfer_edges(
+        &mut self,
+        solid: SolidIdx,
+        edges: &[EdgeIdx],
+        distance: f64,
+    ) -> Result<SolidIdx, euler_chamfer::EulerChamferError> {
+        let _span = info_span!("kernel.euler_chamfer_edges", solid = solid.raw(), n_edges = edges.len(), distance).entered();
+        euler_chamfer_edges(&mut self.topo, &mut self.geom, solid, edges, distance)
     }
 
     /// Apply a constant-radius fillet to straight edges between planar faces.
