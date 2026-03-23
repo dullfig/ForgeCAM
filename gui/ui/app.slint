@@ -1,0 +1,293 @@
+// ForgeCAM — Root application layout.
+// Ultrawide-style split: viewport (left) | workspace (right).
+
+import { Theme } from "theme.slint";
+import { FloatingToolbar } from "toolbar.slint";
+import { FeatureTree } from "tree.slint";
+import { PropertiesPanel } from "properties.slint";
+import { CompanionPanel } from "companion.slint";
+import { StatusBar } from "statusbar.slint";
+
+// Workspace tab bar for the right panel.
+component WorkspaceTabs inherits Rectangle {
+    in property <int> active-tab: 0;
+    callback tab-clicked(int);
+
+    height: Theme.tab-height;
+    background: Theme.bg-surface;
+
+    HorizontalLayout {
+        padding-left: Theme.spacing-sm;
+        padding-right: Theme.spacing-sm;
+        spacing: 2px;
+        alignment: start;
+
+        for tab-info[idx] in [
+            { label: "Features" },
+            { label: "Operations" },
+            { label: "Tools" },
+            { label: "G-Code" },
+            { label: "Setup" },
+        ]: Rectangle {
+            height: parent.height;
+            min-width: 60px;
+            background: transparent;
+            border-width: 0;
+
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.tab-clicked(idx); }
+            }
+
+            VerticalLayout {
+                alignment: end;
+
+                Text {
+                    text: tab-info.label;
+                    color: idx == root.active-tab ? Theme.accent : Theme.text-dim;
+                    font-size: Theme.font-md;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                // Active indicator line
+                Rectangle {
+                    height: 2px;
+                    background: idx == root.active-tab ? Theme.accent : transparent;
+
+                    animate background { duration: 150ms; }
+                }
+            }
+        }
+    }
+}
+
+// ── Main Application ─────────────────────────────────────────────────
+
+export component App inherits Window {
+    // wgpu viewport texture — set from Rust via set_rendering_notifier
+    in property <image> viewport-image;
+
+    // Viewport gradient — user-configurable colors (read by Rust each frame)
+    in-out property <color> gradient-top: #3d4a5c;
+    in-out property <color> gradient-bottom: #080a10;
+
+    // Status bar properties
+    in property <string> kernel-status: "Kernel OK";
+    in property <string> computation-status: "OP2 generating";
+    in property <string> units: "Inch";
+    in property <string> llm-status: "Ollama · llama3.3 · local";
+    in property <string> tri-count: "1,248 tris";
+
+    // Companion context
+    in property <string> companion-context: "Pocket Cut · OP2";
+
+    // Workspace state
+    in-out property <int> active-workspace: 0;
+    in-out property <int> active-ws-tab: 0;
+
+    title: "ForgeCAM — bracket-assy-041.forge";
+    preferred-width: 1600px;
+    preferred-height: 900px;
+    background: Theme.bg-deep;
+
+    VerticalLayout {
+        // ── Titlebar ─────────────────────────────────────────────
+        Rectangle {
+            height: Theme.titlebar-height;
+            background: Theme.bg-deep;
+            border-width: 0;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 14px;
+                alignment: center;
+
+                // Brand
+                HorizontalLayout {
+                    spacing: 0;
+                    alignment: center;
+                    Text {
+                        text: "FORGE";
+                        color: Theme.accent;
+                        font-size: Theme.font-md;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }
+                    Text {
+                        text: "CAM";
+                        color: Theme.text-dim;
+                        font-size: Theme.font-md;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }
+                }
+
+                // Filename
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: center;
+                    Text {
+                        text: "bracket-assy-041.forge";
+                        color: Theme.text;
+                        font-size: Theme.font-md;
+                    }
+                    Text {
+                        text: "(modified)";
+                        color: Theme.orange;
+                        font-size: Theme.font-md;
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                // Command palette trigger
+                Rectangle {
+                    height: 22px;
+                    min-width: 140px;
+                    border-radius: Theme.radius;
+                    background: Theme.bg-surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    horizontal-stretch: 0;
+
+                    TouchArea { mouse-cursor: pointer; }
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        alignment: center;
+
+                        Text {
+                            text: "Commands";
+                            color: Theme.text-dim;
+                            font-size: Theme.font-md;
+                        }
+                        Text {
+                            text: "Ctrl+K";
+                            color: Theme.text-dim;
+                            font-size: Theme.font-xs;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Titlebar border
+        Rectangle { height: 1px; background: Theme.border; }
+
+        // ── Main content area ────────────────────────────────────
+        HorizontalLayout {
+            vertical-stretch: 1;
+
+            // ── Left: Viewport zone ──────────────────────────────
+            Rectangle {
+                horizontal-stretch: 62;
+                background: Theme.bg-deep;
+
+                // Viewport image from wgpu
+                Image {
+                    source: root.viewport-image;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: fill;
+                }
+
+                // Floating toolbar overlay — centered at top
+                FloatingToolbar {
+                    x: (parent.width - self.width) / 2;
+                    y: 10px;
+                    active-workspace: root.active-workspace;
+                    workspace-changed(idx) => {
+                        root.active-workspace = idx;
+                    }
+                }
+
+                // Viewport info overlay — top left
+                Text {
+                    x: 14px;
+                    y: 56px;
+                    text: "Shaded + Edges\n34 faces · 82 edges · 1,248 tris";
+                    color: #7d8590;
+                    font-size: Theme.font-sm;
+                }
+
+                // Triad — bottom left
+                HorizontalLayout {
+                    x: 20px;
+                    y: parent.height - 36px;
+                    spacing: 4px;
+                    Text { text: "X"; color: Theme.red; font-size: Theme.font-md; font-weight: 600; }
+                    Text { text: "Y"; color: Theme.green; font-size: Theme.font-md; font-weight: 600; }
+                    Text { text: "Z"; color: Theme.accent; font-size: Theme.font-md; font-weight: 600; }
+                }
+            }
+
+            // ── Divider ──────────────────────────────────────────
+            Rectangle {
+                width: 4px;
+                background: Theme.border;
+                // TODO: make draggable for split resize
+            }
+
+            // ── Right: Workspace zone ────────────────────────────
+            Rectangle {
+                horizontal-stretch: 38;
+                background: Theme.bg-panel;
+
+                VerticalLayout {
+                    // Workspace tabs
+                    WorkspaceTabs {
+                        active-tab: root.active-ws-tab;
+                        tab-clicked(idx) => { root.active-ws-tab = idx; }
+                    }
+
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    // Tree + Properties split
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+
+                        FeatureTree {
+                            min-width: 200px;
+                            horizontal-stretch: 45;
+                        }
+
+                        Rectangle { width: 1px; background: Theme.border; }
+
+                        PropertiesPanel {
+                            horizontal-stretch: 55;
+                            gradient-top <=> root.gradient-top;
+                            gradient-bottom <=> root.gradient-bottom;
+                        }
+                    }
+
+                    // Separator
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    // Companion panel
+                    CompanionPanel {
+                        min-height: 200px;
+                        vertical-stretch: 40;
+                        context-label: root.companion-context;
+                    }
+                }
+            }
+        }
+
+        // ── Status bar border ────────────────────────────────────
+        Rectangle { height: 1px; background: Theme.border; }
+
+        // ── Status bar ───────────────────────────────────────────
+        StatusBar {
+            kernel-status: root.kernel-status;
+            computation-status: root.computation-status;
+            units: root.units;
+            llm-status: root.llm-status;
+            tri-count: root.tri-count;
+        }
+    }
+}

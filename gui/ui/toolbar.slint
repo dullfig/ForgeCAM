@@ -1,0 +1,125 @@
+// Floating toolbar — pill-shaped, centered over viewport.
+// Tool buttons + workspace tabs + display mode toggles.
+
+import { Theme } from "theme.slint";
+
+component ToolButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+
+    width: 32px;
+    height: 32px;
+    border-radius: Theme.radius;
+    background: active ? Theme.accent-dim : transparent;
+
+    animate background { duration: 100ms; }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        text: root.label;
+        color: root.active ? Theme.accent : Theme.text-bright;
+        font-size: 15px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component WorkspaceTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 30px;
+    horizontal-stretch: 0;
+    border-radius: Theme.radius;
+    background: active ? Theme.bg-active : transparent;
+
+    animate background { duration: 150ms; }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        text: root.label;
+        color: active ? Theme.text-bright : #a0a8b4;
+        font-size: Theme.font-sm;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    // Padding via min-width based on text
+    min-width: 60px;
+}
+
+component ToolbarSep inherits Rectangle {
+    width: 1px;
+    height: 18px;
+    background: Theme.border;
+}
+
+export component FloatingToolbar inherits Rectangle {
+    in property <int> active-workspace: 0;
+    callback workspace-changed(int);
+
+    height: 44px;
+    border-radius: Theme.radius-lg;
+    background: #232830;
+    border-width: 1px;
+    border-color: #3a424d;
+
+    // Drop shadow layer behind the toolbar
+    Rectangle {
+        x: 0px;
+        y: 2px;
+        width: parent.width;
+        height: parent.height;
+        border-radius: Theme.radius-lg;
+        background: #00000060;
+    }
+
+    HorizontalLayout {
+        padding: 5px;
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 2px;
+        alignment: center;
+
+        ToolButton { label: "▣"; active: true; }
+        ToolButton { label: "✎"; }
+        ToolButton { label: "⬆"; }
+        ToolButton { label: "↻"; }
+        ToolButton { label: "◯"; }
+        ToolButton { label: "∩"; }
+
+        ToolbarSep {}
+
+        WorkspaceTab {
+            label: "Model";
+            active: root.active-workspace == 0;
+            clicked => { root.workspace-changed(0); }
+        }
+        WorkspaceTab {
+            label: "Machine";
+            active: root.active-workspace == 1;
+            clicked => { root.workspace-changed(1); }
+        }
+        WorkspaceTab {
+            label: "Inspect";
+            active: root.active-workspace == 2;
+            clicked => { root.workspace-changed(2); }
+        }
+
+        ToolbarSep {}
+
+        ToolButton { label: "▨"; }
+        ToolButton { label: "✂"; }
+    }
+}

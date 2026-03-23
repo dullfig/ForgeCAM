@@ -1,0 +1,162 @@
+// Feature tree panel — bodies, features, machining ops with status badges.
+
+import { Theme } from "theme.slint";
+
+component TreeHeader inherits Rectangle {
+    in property <string> label;
+
+    height: 28px;
+    background: transparent;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        alignment: center;
+
+        Text {
+            text: root.label;
+            color: Theme.text-dim;
+            font-size: Theme.font-xs;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+        }
+    }
+}
+
+component TreeItem inherits Rectangle {
+    in property <string> icon;
+    in property <color> icon-color: Theme.text;
+    in property <string> label;
+    in property <string> badge-text: "";
+    in property <color> badge-color: Theme.green;
+    in property <color> badge-bg: Theme.green-dim;
+    in property <bool> selected: false;
+
+    callback clicked();
+
+    height: 26px;
+    background: selected ? Theme.accent-dim : transparent;
+    border-radius: 2px;
+
+    animate background { duration: 100ms; }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 5px;
+        alignment: center;
+
+        Text {
+            text: root.icon;
+            color: root.icon-color;
+            font-size: 12px;
+            width: 16px;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: root.label;
+            color: root.selected ? Theme.accent : Theme.text;
+            font-size: Theme.font-md;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        if root.badge-text != "": Rectangle {
+            height: 14px;
+            min-width: 20px;
+            border-radius: 7px;
+            background: root.badge-bg;
+            horizontal-stretch: 0;
+
+            Text {
+                text: root.badge-text;
+                color: root.badge-color;
+                font-size: 9px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component FeatureTree inherits Rectangle {
+    background: Theme.bg-panel;
+
+    VerticalLayout {
+        // Panel header
+        Rectangle {
+            height: Theme.panel-header-height;
+            background: Theme.bg-surface;
+
+            HorizontalLayout {
+                padding-left: Theme.spacing-md;
+                spacing: 6px;
+                alignment: center;
+
+                Text {
+                    text: "🌲";
+                    font-size: 12px;
+                }
+                Text {
+                    text: "FEATURES";
+                    color: Theme.text-dim;
+                    font-size: Theme.font-xs;
+                    font-weight: 600;
+                    letter-spacing: 0.4px;
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.border; }
+
+        // Tree content
+        Flickable {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                padding: 3px;
+                padding-top: 0;
+                spacing: 0px;
+
+                TreeHeader { label: "ORIGIN"; }
+                TreeItem { icon: "→"; icon-color: Theme.red; label: "XY Plane"; }
+                TreeItem { icon: "→"; icon-color: Theme.green; label: "XZ Plane"; }
+                TreeItem { icon: "→"; icon-color: Theme.accent; label: "YZ Plane"; }
+
+                TreeHeader { label: "BODIES"; }
+                TreeItem {
+                    icon: "▣"; label: "Bracket";
+                    badge-text: "OK"; badge-color: Theme.green; badge-bg: Theme.green-dim;
+                }
+
+                TreeHeader { label: "FEATURES"; }
+                TreeItem { icon: "▭"; label: "Sketch 1"; }
+                TreeItem { icon: "⬆"; label: "Extrude 1 — 0.750\""; }
+                TreeItem { icon: "▭"; label: "Sketch 2"; }
+                TreeItem { icon: "⬇"; label: "Pocket Cut — 0.500\""; selected: true; }
+                TreeItem { icon: "◯"; label: "Fillet — R 0.125\""; }
+                TreeItem { icon: "⬤"; label: "Holes — 3x #10-32"; }
+                TreeItem { icon: "△"; label: "Chamfer — 0.030"; }
+
+                TreeHeader { label: "MACHINING"; }
+                TreeItem {
+                    icon: "➔"; icon-color: Theme.green; label: "OP1 Face Mill";
+                    badge-text: "✓"; badge-color: Theme.green; badge-bg: Theme.green-dim;
+                }
+                TreeItem {
+                    icon: "➔"; icon-color: Theme.orange; label: "OP2 Rough Pocket";
+                    badge-text: "GEN"; badge-color: Theme.orange; badge-bg: Theme.orange-dim;
+                    selected: true;
+                }
+                TreeItem { icon: "➔"; icon-color: Theme.text-dim; label: "OP3 Finish Pocket"; }
+                TreeItem { icon: "➔"; icon-color: Theme.text-dim; label: "OP4 Drill"; }
+            }
+        }
+    }
+}

@@ -1,0 +1,9 @@
+[package]
+name = "rustkernel-topology"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustkernel-math = { path = "../rustkernel-math" }
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"

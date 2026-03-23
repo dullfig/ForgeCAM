@@ -1,0 +1,12 @@
+[package]
+name = "rustkernel-geom"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+forgecam-geometry = { path = "../../geometry" }
+rustkernel-math = { path = "../rustkernel-math" }
+rustkernel-topology = { path = "../rustkernel-topology" }
+curvo = { version = "0.1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"

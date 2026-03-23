@@ -1,0 +1,11 @@
+[package]
+name = "rustkernel-viewer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustkernel-math = { path = "../rustkernel-math" }
+rustkernel-topology = { path = "../rustkernel-topology" }
+rustkernel-geom = { path = "../rustkernel-geom" }
+rustkernel-kernel = { path = "../rustkernel-kernel" }
+three-d = "0.18"

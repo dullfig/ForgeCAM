@@ -1,1 +1,24 @@
 /target
+**/target
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Claude Code local state
+**/.claude/settings.local.json
+**/.claude/*.db
+**/.claude/*.db-shm
+**/.claude/*.db-wal
+**/.claude/context-folding/
+
+# Research papers (don't track binary PDFs)
+**/docs/*.pdf

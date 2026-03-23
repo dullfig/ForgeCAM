@@ -1,0 +1,14 @@
+[package]
+name = "forgecam-parameter-registry"
+version = "0.1.0"
+edition = "2021"
+description = "Persistent entity IDs and naming journal for ForgeCAM"
+
+[dependencies]
+forgecam-geometry = { path = "../geometry" }
+rustkernel-topology = { path = "../kernel/rustkernel-topology" }
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+
+[dev-dependencies]
+serde_json = "1"

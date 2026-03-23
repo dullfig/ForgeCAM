@@ -1,8 +1,0 @@
-[package]
-name = "rustkernel-topology"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-rustkernel-math = { path = "../rustkernel-math" }
-tracing = "0.1"

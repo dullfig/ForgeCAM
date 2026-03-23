@@ -1,0 +1,16 @@
+[package]
+name = "forgecam-mrsev"
+version = "0.1.0"
+edition = "2021"
+description = "Machining feature recognition (MRSEVs) for ForgeCAM"
+
+[dependencies]
+rustkernel-math = { path = "../kernel/rustkernel-math" }
+rustkernel-topology = { path = "../kernel/rustkernel-topology" }
+rustkernel-geom = { path = "../kernel/rustkernel-geom" }
+rustkernel-builders = { path = "../kernel/rustkernel-builders" }
+rustkernel-kernel = { path = "../kernel/rustkernel-kernel" }
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+thiserror = "2"

@@ -1,0 +1,9 @@
+[package]
+name = "rustkernel-math"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+forgecam-geometry = { path = "../../geometry" }
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
+serde = { version = "1", features = ["derive"] }

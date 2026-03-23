@@ -1,0 +1,118 @@
+// AI Companion panel — input bar + conversation history.
+
+import { Theme } from "theme.slint";
+
+component CompanionDot inherits Rectangle {
+    width: 7px;
+    height: 7px;
+    border-radius: 3.5px;
+    background: Theme.accent;
+    // Pulse animation
+    animate opacity {
+        duration: 3000ms;
+        iteration-count: -1;
+        easing: ease-in-out;
+    }
+    opacity: 0.7;
+}
+
+export component CompanionPanel inherits Rectangle {
+    in property <string> context-label: "Ready";
+    in property <string> model-label: "ollama · llama3.3 · local";
+    callback message-submitted(string);
+
+    background: Theme.bg-panel;
+    border-width: 0;
+
+    VerticalLayout {
+        // Header
+        Rectangle {
+            height: Theme.panel-header-height;
+            background: Theme.bg-surface;
+            border-width: 0;
+
+            HorizontalLayout {
+                padding-left: Theme.spacing-md;
+                padding-right: Theme.spacing-md;
+                alignment: center;
+                spacing: 7px;
+
+                CompanionDot {}
+
+                Text {
+                    text: "COMPANION";
+                    color: Theme.text-dim;
+                    font-size: Theme.font-xs;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: root.model-label;
+                    color: Theme.text-dim;
+                    font-size: Theme.font-xs;
+                }
+            }
+        }
+
+        // Separator
+        Rectangle { height: 1px; background: Theme.border; }
+
+        // History area (placeholder — will be a ListView of message components)
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.bg-panel;
+
+            Text {
+                x: Theme.spacing-md;
+                y: Theme.spacing-md;
+                text: "Ask anything or describe what to do...";
+                color: Theme.text-dim;
+                font-size: Theme.font-md;
+            }
+        }
+
+        // Separator
+        Rectangle { height: 1px; background: Theme.border; }
+
+        // Input row
+        Rectangle {
+            height: 44px;
+            background: Theme.bg-surface;
+
+            HorizontalLayout {
+                padding: Theme.spacing-sm;
+                padding-left: Theme.spacing-md;
+                padding-right: Theme.spacing-md;
+                spacing: Theme.spacing-sm;
+                alignment: center;
+
+                input := Rectangle {
+                    horizontal-stretch: 1;
+                    height: 28px;
+                    border-radius: Theme.radius;
+                    background: Theme.bg-panel;
+                    border-width: 1px;
+                    border-color: Theme.border;
+
+                    Text {
+                        x: Theme.spacing-md;
+                        text: "Ask anything or describe what to do...";
+                        color: Theme.text-dim;
+                        font-size: Theme.font-base;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: "Ctx: " + root.context-label;
+                    color: Theme.text-dim;
+                    font-size: Theme.font-xs;
+                    horizontal-stretch: 0;
+                }
+            }
+        }
+    }
+}

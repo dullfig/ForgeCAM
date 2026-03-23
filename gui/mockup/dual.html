@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ForgeCAM — Dual Monitor Mockup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-deep:    #0e1117;
+    --bg-panel:   #161b22;
+    --bg-surface: #1c2129;
+    --bg-hover:   #252c35;
+    --bg-active:  #2d353f;
+    --border:     #2d333b;
+    --border-light:#3d444d;
+    --text:       #c9d1d9;
+    --text-dim:   #7d8590;
+    --text-bright:#e6edf3;
+    --accent:     #4493f8;
+    --accent-dim: #1a3a5c;
+    --green:      #3fb950;
+    --green-dim:  #1a3d2a;
+    --orange:     #d29922;
+    --orange-dim: #3d2e1a;
+    --red:        #f85149;
+    --radius:     6px;
+    --font:       'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono:       'Cascadia Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--font);
+    font-size: 13px;
+    color: var(--text);
+    background: #0a0c10;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── Dual-screen container ─────────────────────────────────────── */
+  .dual-layout {
+    display: flex;
+    height: 100vh;
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .screen {
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+  }
+  .screen-1 { flex: 6; background: var(--bg-deep); }
+  .screen-2 { flex: 4; background: var(--bg-panel); }
+
+  .screen-label {
+    position: absolute;
+    top: 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    opacity: 0.5;
+    z-index: 10;
+  }
+  .screen-1 .screen-label { left: 50%; transform: translateX(-50%); }
+  .screen-2 .screen-label { left: 16px; }
+
+  .screen { position: relative; }
+
+  /* ── Screen 1: Titlebar ────────────────────────────────────────── */
+  .s1-titlebar {
+    height: 32px;
+    background: var(--bg-deep);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .brand {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .brand span { color: var(--accent); }
+  .s1-file { font-size: 12px; color: var(--text); }
+  .s1-file .mod { color: var(--orange); }
+  .s1-spacer { flex: 1; }
+  .s1-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 3px 10px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .s1-search:hover { border-color: var(--accent); }
+  .s1-search kbd {
+    font-family: var(--mono);
+    font-size: 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+
+  /* ── Screen 1: Floating toolbar ────────────────────────────────── */
+  .floating-toolbar {
+    position: absolute;
+    top: 44px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px 8px;
+    z-index: 5;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .ft-btn {
+    width: 32px; height: 32px;
+    border: none; border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ft-btn:hover { background: var(--bg-hover); }
+  .ft-btn.active { background: var(--accent-dim); color: var(--accent); }
+  .ft-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+  .ft-workspace {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: var(--radius);
+  }
+  .ft-workspace:hover { color: var(--text); background: var(--bg-hover); }
+  .ft-workspace.active { color: var(--text-bright); background: var(--bg-active); }
+
+  /* ── Screen 1: Viewport ────────────────────────────────────────── */
+  .viewport {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(170deg, #1e2028 0%, #08090c 100%);
+  }
+
+  .viewport-grid {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(rgba(45,51,59,0.18) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(45,51,59,0.18) 1px, transparent 1px);
+    background-size: 50px 50px;
+    background-position: center;
+  }
+  .viewport-grid::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 55%, rgba(30,80,140,0.06) 0%, transparent 65%);
+  }
+
+  /* Fake 3D model — larger since it has the whole screen */
+  .vp-model {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotateX(-20deg) rotateY(30deg);
+  }
+  .m-body {
+    width: 320px; height: 200px;
+    background: linear-gradient(135deg, #3a4a5c 0%, #2a3a4c 40%, #1e2d3d 100%);
+    border: 1.5px solid #4a6a8a;
+    border-radius: 4px;
+    position: relative;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+  }
+  .m-pocket {
+    position: absolute;
+    top: 30px; left: 40px;
+    width: 160px; height: 100px;
+    background: linear-gradient(135deg, #1a2a3a, #152535);
+    border: 1.5px solid var(--accent);
+    border-radius: 3px;
+    box-shadow: 0 0 20px rgba(68,147,248,0.2), inset 0 0 12px rgba(68,147,248,0.08);
+  }
+  .m-pocket-floor {
+    position: absolute;
+    bottom: 0; left: 0; right: 0; height: 50px;
+    background: linear-gradient(to bottom, transparent, rgba(50,100,150,0.08));
+  }
+  /* Toolpath lines on the pocket */
+  .m-toolpath {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px; bottom: 20px;
+  }
+  .tp-line {
+    height: 1px;
+    background: var(--green);
+    opacity: 0.5;
+    margin-bottom: 7px;
+    border-radius: 1px;
+    position: relative;
+  }
+  .tp-line::after {
+    content: '';
+    position: absolute;
+    right: 0; top: -2px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--green);
+    opacity: 0;
+  }
+  .tp-line.active { opacity: 1; background: var(--green); height: 2px; }
+  .tp-line.active::after { opacity: 1; }
+
+  .m-holes {
+    position: absolute;
+    top: 35px; right: 35px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .m-hole {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1.5px solid #4a7aaa;
+    background: radial-gradient(circle at 40% 40%, #2a4a6a, #0e1a2a);
+  }
+
+  /* Rapid line */
+  .m-rapid {
+    position: absolute;
+    top: 20px; left: 195px;
+    width: 2px; height: 60px;
+    background: repeating-linear-gradient(to bottom, var(--orange) 0px, var(--orange) 4px, transparent 4px, transparent 8px);
+    opacity: 0.6;
+    transform: rotate(15deg);
+  }
+
+  /* Viewport overlays */
+  .vp-info {
+    position: absolute;
+    top: 48px; left: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    line-height: 1.6;
+  }
+
+  .vp-triad {
+    position: absolute;
+    bottom: 24px; left: 24px;
+    width: 60px; height: 60px;
+  }
+  .tr-axis {
+    position: absolute; bottom: 0; left: 0;
+    font-size: 12px; font-weight: 600; font-family: var(--mono);
+  }
+  .tr-x { color: #f85149; bottom: 2px; left: 48px; }
+  .tr-y { color: #3fb950; bottom: 48px; left: 2px; }
+  .tr-z { color: #4493f8; bottom: 48px; left: 48px; }
+
+  .vp-sel-badge {
+    position: absolute;
+    top: 48px; right: 16px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 12px;
+    min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .vp-sel-badge .sel-t { font-weight: 600; color: var(--accent); margin-bottom: 6px; font-size: 13px; }
+  .vp-sel-badge .sel-r {
+    display: flex; justify-content: space-between; gap: 16px;
+    color: var(--text-dim); line-height: 1.7;
+  }
+  .vp-sel-badge .sel-r .v { color: var(--text); font-family: var(--mono); font-size: 11px; }
+
+  /* Screen 1 status bar */
+  .s1-status {
+    height: 24px;
+    background: var(--bg-deep);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .st-item { display: flex; align-items: center; gap: 4px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .dot-g { background: var(--green); }
+  .dot-o { background: var(--orange); }
+  .st-spacer { flex: 1; }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     Screen 2: Workspace
+     ═══════════════════════════════════════════════════════════════════ */
+
+  .s2-layout {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Screen 2: Tab bar ─────────────────────────────────────────── */
+  .s2-tabs {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .s2-tab {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    border-radius: var(--radius) var(--radius) 0 0;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .s2-tab:hover { color: var(--text); }
+  .s2-tab.active { color: var(--text-bright); border-bottom-color: var(--accent); }
+
+  /* ── Screen 2: Content panels (stacked) ────────────────────────── */
+  .s2-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .s2-upper {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Feature tree */
+  .s2-tree-col {
+    width: 260px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .panel-hdr {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+  }
+  .panel-hdr .icon { font-size: 13px; }
+
+  .tree-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .ti {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 12px 5px 14px;
+    cursor: pointer; font-size: 12px;
+    transition: background 0.1s;
+  }
+  .ti:hover { background: var(--bg-hover); }
+  .ti.sel { background: var(--accent-dim); color: var(--accent); }
+  .ti .ic { font-size: 13px; width: 18px; text-align: center; flex-shrink: 0; }
+  .ti .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ti .bg {
+    font-size: 9px; padding: 1px 5px; border-radius: 8px; font-weight: 600;
+  }
+  .bg-ok { background: var(--green-dim); color: var(--green); }
+  .bg-gen { background: var(--orange-dim); color: var(--orange); }
+  .ti.hdr {
+    font-weight: 600; color: var(--text-dim); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    padding-top: 12px; cursor: default;
+  }
+  .ti.hdr:hover { background: transparent; }
+  .ti.indent { padding-left: 30px; }
+
+  /* Properties / details */
+  .s2-detail-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .prop-sec {
+    border-bottom: 1px solid var(--border);
+    padding: 12px 14px;
+  }
+  .prop-sec-title {
+    font-size: 11px; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px;
+  }
+  .pr {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 3px 0; font-size: 12px;
+  }
+  .pr .lbl { color: var(--text-dim); }
+  .pr .val { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .pr input {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 3px 8px; color: var(--text);
+    font-family: var(--mono); font-size: 11px; width: 80px; text-align: right;
+  }
+  .pr input:focus { outline: none; border-color: var(--accent); }
+
+  .btn-action {
+    width: 100%; padding: 7px 12px; margin-top: 8px;
+    background: var(--accent-dim); border: 1px solid rgba(68,147,248,0.3);
+    border-radius: var(--radius); color: var(--accent);
+    font-size: 12px; font-weight: 500; cursor: pointer;
+  }
+  .btn-action:hover { background: rgba(68,147,248,0.2); }
+
+  /* ── Suggested ops table ───────────────────────────────────────── */
+  .ops-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin-top: 6px;
+  }
+  .ops-table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 500;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ops-table td {
+    padding: 5px 6px;
+    border-bottom: 1px solid rgba(45,51,59,0.5);
+    color: var(--text);
+  }
+  .ops-table tr:hover td { background: var(--bg-hover); }
+  .ops-table .tool-col { font-family: var(--mono); color: var(--accent); }
+  .ops-table .feed-col { font-family: var(--mono); }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     AI Companion — full panel on screen 2
+     ═══════════════════════════════════════════════════════════════════ */
+
+  .companion {
+    height: 280px;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .companion-hdr {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+  }
+  .companion-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  .companion-model {
+    margin-left: auto;
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .companion-history {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .c-msg { font-size: 12px; line-height: 1.6; max-width: 90%; }
+  .c-msg.user {
+    align-self: flex-end;
+    background: var(--accent-dim);
+    border: 1px solid rgba(68,147,248,0.15);
+    border-radius: var(--radius) var(--radius) 2px var(--radius);
+    padding: 7px 11px;
+    color: var(--text-bright);
+  }
+  .c-msg.ai {
+    align-self: flex-start;
+    color: var(--text);
+    padding: 4px 0;
+  }
+  .c-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    margin: 4px 0;
+  }
+  .c-table-wrap {
+    margin: 6px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .c-table-wrap table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .c-table-wrap th {
+    text-align: left;
+    padding: 5px 8px;
+    color: var(--text-dim);
+    font-weight: 500;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .c-table-wrap td {
+    padding: 4px 8px;
+    color: var(--text);
+    border-bottom: 1px solid rgba(45,51,59,0.4);
+  }
+  .c-table-wrap .mono { font-family: var(--mono); }
+  .c-table-wrap .accent { color: var(--accent); }
+
+  .companion-input-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    gap: 8px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .companion-input {
+    flex: 1;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 7px 12px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+  }
+  .companion-input::placeholder { color: var(--text-dim); }
+  .companion-input:focus { outline: none; border-color: var(--accent); }
+  .companion-ctx {
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .companion-ctx span { color: var(--accent); }
+
+  /* ── Scrollbar ─────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 7px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--bg-active); }
+</style>
+</head>
+<body>
+
+<div class="dual-layout">
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SCREEN 1 — The Model
+       ═══════════════════════════════════════════════════════════════ -->
+  <div class="screen screen-1">
+    <div class="screen-label">Screen 1 — Viewport</div>
+
+    <div class="s1-titlebar">
+      <div class="brand"><span>Forge</span>CAM</div>
+      <div class="s1-file">bracket-assy-041.forge <span class="mod">(modified)</span></div>
+      <div class="s1-spacer"></div>
+      <div class="s1-search">
+        Commands <kbd>Ctrl</kbd>+<kbd>K</kbd>
+      </div>
+    </div>
+
+    <div class="viewport">
+      <div class="viewport-grid"></div>
+
+      <!-- Floating toolbar -->
+      <div class="floating-toolbar">
+        <button class="ft-btn active" title="Select">&#x25E3;</button>
+        <button class="ft-btn" title="Sketch">&#x270E;</button>
+        <button class="ft-btn" title="Extrude">&#x2B06;</button>
+        <button class="ft-btn" title="Revolve">&#x21BB;</button>
+        <button class="ft-btn" title="Fillet">&#x25EF;</button>
+        <button class="ft-btn" title="Boolean">&#x2229;</button>
+        <div class="ft-sep"></div>
+        <div class="ft-workspace active">Model</div>
+        <div class="ft-workspace">Machine</div>
+        <div class="ft-workspace">Inspect</div>
+        <div class="ft-sep"></div>
+        <button class="ft-btn" title="Shaded">&#x25A8;</button>
+        <button class="ft-btn" title="Section">&#x2702;</button>
+      </div>
+
+      <!-- Model -->
+      <div class="vp-model">
+        <div class="m-body">
+          <div class="m-pocket">
+            <div class="m-pocket-floor"></div>
+            <div class="m-toolpath">
+              <div class="tp-line"></div>
+              <div class="tp-line"></div>
+              <div class="tp-line active"></div>
+              <div class="tp-line" style="opacity:0.2"></div>
+              <div class="tp-line" style="opacity:0.2"></div>
+              <div class="tp-line" style="opacity:0.2"></div>
+              <div class="tp-line" style="opacity:0.15"></div>
+              <div class="tp-line" style="opacity:0.1"></div>
+            </div>
+          </div>
+          <div class="m-rapid"></div>
+          <div class="m-holes">
+            <div class="m-hole"></div>
+            <div class="m-hole"></div>
+            <div class="m-hole"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Overlays -->
+      <div class="vp-info">
+        Shaded + Edges<br>
+        Faces: 34 &nbsp; Edges: 82<br>
+        Tris: 1,248
+      </div>
+
+      <div class="vp-sel-badge">
+        <div class="sel-t">&#x25A3; Pocket Cut</div>
+        <div class="sel-r"><span>Depth</span><span class="v">0.500"</span></div>
+        <div class="sel-r"><span>Corners</span><span class="v">R 0.125"</span></div>
+        <div class="sel-r"><span>Floor</span><span class="v">1 face</span></div>
+        <div class="sel-r"><span>Toolpath</span><span class="v" style="color:var(--green)">OP2 roughing</span></div>
+      </div>
+
+      <div class="vp-triad">
+        <span class="tr-axis tr-x">X</span>
+        <span class="tr-axis tr-y">Y</span>
+        <span class="tr-axis tr-z">Z</span>
+      </div>
+    </div>
+
+    <div class="s1-status">
+      <div class="st-item"><span class="dot dot-g"></span> Kernel</div>
+      <div class="st-item"><span class="dot dot-o"></span> OP2 generating</div>
+      <div class="st-item">Inch</div>
+      <div class="st-spacer"></div>
+      <div class="st-item">Ollama &middot; llama3.3 &middot; local</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SCREEN 2 — The Workspace
+       ═══════════════════════════════════════════════════════════════ -->
+  <div class="screen screen-2">
+    <div class="screen-label">Screen 2 — Workspace</div>
+
+    <div class="s2-tabs">
+      <div class="s2-tab active">Features</div>
+      <div class="s2-tab">Operations</div>
+      <div class="s2-tab">Tools</div>
+      <div class="s2-tab">G-Code</div>
+      <div class="s2-tab">Setup</div>
+    </div>
+
+    <div class="s2-content">
+      <div class="s2-upper">
+
+        <!-- Feature tree -->
+        <div class="s2-tree-col">
+          <div class="panel-hdr"><span class="icon">&#x1F332;</span> Feature Tree</div>
+          <div class="tree-list">
+            <div class="ti hdr">Origin</div>
+            <div class="ti indent"><span class="ic" style="color:#f85149">&#x2192;</span><span class="nm">XY Plane</span></div>
+            <div class="ti indent"><span class="ic" style="color:#3fb950">&#x2192;</span><span class="nm">XZ Plane</span></div>
+            <div class="ti indent"><span class="ic" style="color:#4493f8">&#x2192;</span><span class="nm">YZ Plane</span></div>
+
+            <div class="ti hdr">Bodies</div>
+            <div class="ti"><span class="ic">&#x25A3;</span><span class="nm">Bracket</span><span class="bg bg-ok">OK</span></div>
+
+            <div class="ti hdr">Features</div>
+            <div class="ti"><span class="ic">&#x25AD;</span><span class="nm">Sketch 1 — Base profile</span></div>
+            <div class="ti"><span class="ic">&#x2B06;</span><span class="nm">Extrude 1 — 0.750"</span></div>
+            <div class="ti"><span class="ic">&#x25AD;</span><span class="nm">Sketch 2 — Pocket</span></div>
+            <div class="ti sel"><span class="ic">&#x2B07;</span><span class="nm">Pocket Cut — 0.500" deep</span></div>
+            <div class="ti"><span class="ic">&#x25EF;</span><span class="nm">Fillet — 0.125" (4 edges)</span></div>
+            <div class="ti"><span class="ic">&#x2B24;</span><span class="nm">Hole Pattern — 3x #10-32</span></div>
+            <div class="ti"><span class="ic">&#x25B3;</span><span class="nm">Chamfer — 0.030 x 45&deg;</span></div>
+
+            <div class="ti hdr">Machining</div>
+            <div class="ti"><span class="ic" style="color:var(--green)">&#x2794;</span><span class="nm">OP1 — Face Mill</span><span class="bg bg-ok">&#x2713;</span></div>
+            <div class="ti sel"><span class="ic" style="color:var(--orange)">&#x2794;</span><span class="nm">OP2 — Rough Pocket</span><span class="bg bg-gen">GEN</span></div>
+            <div class="ti"><span class="ic" style="color:var(--text-dim)">&#x2794;</span><span class="nm">OP3 — Finish Pocket</span></div>
+            <div class="ti"><span class="ic" style="color:var(--text-dim)">&#x2794;</span><span class="nm">OP4 — Drill #10-32</span></div>
+          </div>
+        </div>
+
+        <!-- Properties + details -->
+        <div class="s2-detail-col">
+          <div class="prop-sec">
+            <div class="prop-sec-title">OP2 — Rough Pocket</div>
+            <div class="pr"><span class="lbl">Type</span><span class="val">2D Pocket</span></div>
+            <div class="pr"><span class="lbl">Tool</span><span class="val" style="color:var(--accent)">T3 — 1/2" Flat</span></div>
+            <div class="pr"><span class="lbl">Stepover</span><input value="40%" /></div>
+            <div class="pr"><span class="lbl">Depth/Pass</span><input value="0.125&quot;" /></div>
+            <div class="pr"><span class="lbl">Stock Leave</span><input value="0.010&quot;" /></div>
+            <div class="pr"><span class="lbl">Spindle</span><input value="8000 RPM" /></div>
+            <div class="pr"><span class="lbl">Feed</span><input value="60.0 IPM" /></div>
+            <div class="pr"><span class="lbl">Plunge</span><input value="20.0 IPM" /></div>
+          </div>
+
+          <div class="prop-sec">
+            <div class="prop-sec-title">Feature — Pocket</div>
+            <div class="pr"><span class="lbl">Depth</span><span class="val">0.500"</span></div>
+            <div class="pr"><span class="lbl">Corner Radius</span><span class="val">0.125"</span></div>
+            <div class="pr"><span class="lbl">Access Direction</span><span class="val">+Z (Top)</span></div>
+            <div class="pr"><span class="lbl">Min Tool &empty;</span><span class="val">0.250"</span></div>
+            <div class="pr"><span class="lbl">Volume</span><span class="val">0.382 in&sup3;</span></div>
+          </div>
+
+          <div class="prop-sec">
+            <div class="prop-sec-title">Material &amp; Stock</div>
+            <div class="pr"><span class="lbl">Alloy</span><span class="val">6061-T6 Al</span></div>
+            <div class="pr"><span class="lbl">Stock</span><span class="val">4 &times; 3 &times; 1"</span></div>
+            <div class="pr"><span class="lbl">Fixture</span><span class="val">6" Kurt vise</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── AI Companion — full panel ───────────────────────────── -->
+      <div class="companion">
+        <div class="companion-hdr">
+          <div class="companion-dot"></div>
+          Companion
+          <div class="companion-model">ollama &middot; llama3.3 &middot; local</div>
+        </div>
+
+        <div class="companion-history">
+          <div class="c-msg user">rough this pocket, 1/2" endmill, 0.010 stock to leave</div>
+          <div class="c-msg ai">
+            Created roughing operation for Pocket Cut.
+            <div class="c-action">&#x2713; OP2 — Rough Pocket &nbsp;(1/2" flat, 40% stepover, 0.010 stock)</div>
+            Feeds and speeds for 6061-T6:
+            <div class="c-table-wrap">
+              <table>
+                <tr><th>Parameter</th><th>Value</th><th>Basis</th></tr>
+                <tr><td>Spindle</td><td class="mono">8,000 RPM</td><td>SFM 1,050 &rarr; &empty;0.500</td></tr>
+                <tr><td>Feed</td><td class="mono">60.0 IPM</td><td>0.00375 IPT &times; 2fl</td></tr>
+                <tr><td>Plunge</td><td class="mono">20.0 IPM</td><td>1/3 feed</td></tr>
+                <tr><td>Depth/pass</td><td class="mono">0.125"</td><td>1/4 &empty; (conservative)</td></tr>
+              </table>
+            </div>
+            Want me to add a finish pass?
+          </div>
+          <div class="c-msg user">yes, spring pass at full depth</div>
+          <div class="c-msg ai">
+            <div class="c-action">&#x2713; OP3 — Finish Pocket &nbsp;(1/2" flat, spring pass, 0.500" full depth)</div>
+            Feed bumped to 80 IPM for finish. Both ops ready — generate toolpaths?
+          </div>
+        </div>
+
+        <div class="companion-input-row">
+          <input class="companion-input" placeholder="Ask anything or describe what to do...">
+          <div class="companion-ctx">Ctx: <span>Pocket Cut &middot; OP2</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,74 @@
+// Status bar — kernel health, background computation, units, LLM connection.
+
+import { Theme } from "theme.slint";
+
+component StatusDot inherits Rectangle {
+    in property <color> dot-color: Theme.green;
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background: dot-color;
+}
+
+component StatusItem inherits HorizontalLayout {
+    in property <string> label;
+    in property <color> dot-color: Theme.green;
+    in property <bool> show-dot: true;
+
+    spacing: 4px;
+    alignment: center;
+
+    if show-dot: StatusDot { dot-color: root.dot-color; }
+
+    Text {
+        text: root.label;
+        color: Theme.text-dim;
+        font-size: Theme.font-sm;
+    }
+}
+
+export component StatusBar inherits Rectangle {
+    in property <string> kernel-status: "Kernel OK";
+    in property <string> computation-status: "";
+    in property <string> units: "Inch";
+    in property <string> llm-status: "Ollama · llama3.3 · local";
+    in property <string> tri-count: "";
+
+    height: Theme.statusbar-height;
+    background: Theme.bg-deep;
+    border-width: 0;
+
+    HorizontalLayout {
+        padding-left: Theme.spacing-md;
+        padding-right: Theme.spacing-md;
+        spacing: Theme.spacing-lg;
+        alignment: center;
+
+        StatusItem {
+            label: root.kernel-status;
+            dot-color: Theme.green;
+        }
+
+        if root.computation-status != "": StatusItem {
+            label: root.computation-status;
+            dot-color: Theme.orange;
+        }
+
+        StatusItem {
+            label: root.units;
+            show-dot: false;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        StatusItem {
+            label: root.llm-status;
+            show-dot: false;
+        }
+
+        if root.tri-count != "": StatusItem {
+            label: root.tri-count;
+            show-dot: false;
+        }
+    }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "forgecam-geometry"
+version = "0.1.0"
+edition = "2021"
+description = "Pure computational geometry library for ForgeCAM — curves, surfaces, intersection, meshing"
+
+[dependencies]
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
+curvo = { version = "0.1.81", features = ["serde"] }
+cavalier_contours = "0.6"
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+
+[dev-dependencies]
+approx = "0.5"
+serde_json = "1"
