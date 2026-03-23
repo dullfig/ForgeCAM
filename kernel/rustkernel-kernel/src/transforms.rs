@@ -61,7 +61,7 @@ impl Kernel {
     pub fn translate(&mut self, solid: SolidIdx, delta: Vec3) -> SolidIdx {
         use std::collections::HashSet;
 
-        let new_solid = self.copy_solid(solid);
+        let (new_solid, evo) = self.copy_solid_with_evolution(solid);
 
         let faces: Vec<FaceIdx> = self.topo.solid_faces(new_solid);
 
@@ -98,6 +98,7 @@ impl Kernel {
             }
         }
 
+        self.last_evolution = Some(evo);
         new_solid
     }
 
@@ -110,7 +111,7 @@ impl Kernel {
         angle: f64,
     ) -> SolidIdx {
         let _span = info_span!("kernel.rotate", solid = solid.raw(), angle).entered();
-        let new_solid = self.copy_solid(solid);
+        let (new_solid, evo) = self.copy_solid_with_evolution(solid);
 
         let unit_axis = rustkernel_math::nalgebra::Unit::new_normalize(axis_dir);
         let rot = rustkernel_math::nalgebra::Rotation3::from_axis_angle(&unit_axis, angle);
@@ -119,13 +120,14 @@ impl Kernel {
         let m = t * rot.to_homogeneous() * t_inv;
 
         transform_solid_geometry(&mut self.topo, &mut self.geom, new_solid, &m, false);
+        self.last_evolution = Some(evo);
         new_solid
     }
 
     /// Deep-copy a solid and scale it uniformly around a center point.
     pub fn scale(&mut self, solid: SolidIdx, center: Point3, factor: f64) -> SolidIdx {
         let _span = info_span!("kernel.scale", solid = solid.raw(), factor).entered();
-        let new_solid = self.copy_solid(solid);
+        let (new_solid, evo) = self.copy_solid_with_evolution(solid);
 
         let t = Mat4::new_translation(&center.coords);
         let t_inv = Mat4::new_translation(&(-center.coords));
@@ -139,6 +141,7 @@ impl Kernel {
             &m,
             factor < 0.0,
         );
+        self.last_evolution = Some(evo);
         new_solid
     }
 
@@ -150,7 +153,7 @@ impl Kernel {
         plane_normal: Vec3,
     ) -> SolidIdx {
         let _span = info_span!("kernel.mirror", solid = solid.raw()).entered();
-        let new_solid = self.copy_solid(solid);
+        let (new_solid, evo) = self.copy_solid_with_evolution(solid);
 
         let n = plane_normal.normalize();
         // Householder reflection: I - 2*n*nᵀ
@@ -165,6 +168,7 @@ impl Kernel {
         let m = t * reflect * t_inv;
 
         transform_solid_geometry(&mut self.topo, &mut self.geom, new_solid, &m, true);
+        self.last_evolution = Some(evo);
         new_solid
     }
 
@@ -172,10 +176,11 @@ impl Kernel {
     /// Assumes rigid + uniform scale for correct analytical geometry.
     pub fn transform(&mut self, solid: SolidIdx, m: Mat4) -> SolidIdx {
         let _span = info_span!("kernel.transform", solid = solid.raw()).entered();
-        let new_solid = self.copy_solid(solid);
+        let (new_solid, evo) = self.copy_solid_with_evolution(solid);
 
         let flip = m.fixed_view::<3, 3>(0, 0).determinant() < 0.0;
         transform_solid_geometry(&mut self.topo, &mut self.geom, new_solid, &m, flip);
+        self.last_evolution = Some(evo);
         new_solid
     }
 }

@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::euler::{find_he_from_vertex, semv, EulerError};
 use rustkernel_topology::evolution::{
-    FaceOrigin, ShapeEvolution,
+    EdgeOrigin, FaceOrigin, ShapeEvolution, VertexOrigin,
 };
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
@@ -1123,6 +1123,47 @@ pub fn euler_fillet_edges_with_radii(
         }
     }
 
+    // Edge provenance.
+    let filleted_edge_set: HashSet<EdgeIdx> = edges.iter().copied().collect();
+    let mut adjacent_edges: HashSet<EdgeIdx> = HashSet::new();
+    for &face in &adjacent_faces {
+        if faces_before.contains(&face) {
+            let loop_idx = topo.faces.get(face).outer_loop;
+            let start = topo.loops.get(loop_idx).half_edge;
+            let mut he = start;
+            loop {
+                let e = topo.half_edges.get(he).edge;
+                if !filleted_edge_set.contains(&e) {
+                    adjacent_edges.insert(e);
+                }
+                he = topo.half_edges.get(he).next;
+                if he == start { break; }
+            }
+        }
+    }
+
+    for &edge in &edges_after {
+        if edges_before.contains(&edge) {
+            if adjacent_edges.contains(&edge) {
+                evo.record_edge(edge, EdgeOrigin::Modified(edge));
+            } else {
+                evo.record_edge(edge, EdgeOrigin::CopiedFrom(edge));
+            }
+        } else {
+            evo.record_edge(edge, EdgeOrigin::Primitive);
+        }
+    }
+
+    // Vertex provenance.
+    for &vert in &verts_after {
+        if verts_before.contains(&vert) {
+            evo.record_vertex(vert, VertexOrigin::CopiedFrom(vert));
+        } else {
+            evo.record_vertex(vert, VertexOrigin::Primitive);
+        }
+    }
+
+    // Deleted faces/edges/vertices.
     for &face in &faces_before {
         if !faces_after.contains(&face) {
             evo.record_deleted_face(face);

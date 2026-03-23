@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
-use rustkernel_topology::evolution::{FaceOrigin, ShapeEvolution};
+use rustkernel_topology::evolution::{EdgeOrigin, FaceOrigin, ShapeEvolution, VertexOrigin};
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 use tracing::info_span;
@@ -381,6 +381,21 @@ pub fn chamfer_edges_into(
     // Match twins.
     match_twins_from_map(topo, &he_map);
 
+    // Edge and vertex provenance — rebuild creates entirely new topology,
+    // so all edges/vertices are Primitive. Face provenance (above) carries
+    // the semantic mapping back to the original solid.
+    let (_, new_edges, new_verts) = crate::euler_chamfer::collect_solid_entities(topo, new_solid_idx);
+    for edge in new_edges {
+        evo.record_edge(edge, EdgeOrigin::Primitive);
+    }
+    for vert in new_verts {
+        evo.record_vertex(vert, VertexOrigin::Primitive);
+    }
+
+    // Record deleted edges (the chamfered edges from the original solid).
+    // Face deletions aren't tracked here because the original solid is untouched
+    // (rebuild creates a new solid rather than modifying in-place).
+
     Ok((new_solid_idx, evo))
 }
 
@@ -405,7 +420,7 @@ mod tests {
     use super::*;
     use crate::box_builder::make_box_into;
     use crate::edge_analysis::solid_edges;
-    use rustkernel_topology::evolution::FaceOrigin;
+    use rustkernel_topology::evolution::{EdgeOrigin, FaceOrigin, VertexOrigin};
 
     fn verify_euler(topo: &TopoStore, solid: SolidIdx) {
         let shell_idx = topo.solids.get(solid).outer_shell();
@@ -596,5 +611,17 @@ mod tests {
         // 1 deleted edge (the chamfered edge).
         assert_eq!(evo.deleted_edges.len(), 1);
         assert_eq!(evo.deleted_edges[0], edge);
+
+        // Edge/vertex provenance should be populated (rebuild → all Primitive).
+        assert!(!evo.edge_provenance.is_empty(), "edge provenance should be populated");
+        assert!(!evo.vertex_provenance.is_empty(), "vertex provenance should be populated");
+
+        // All edges/vertices in the rebuilt solid are Primitive.
+        for origin in evo.edge_provenance.values() {
+            assert!(matches!(origin, EdgeOrigin::Primitive));
+        }
+        for origin in evo.vertex_provenance.values() {
+            assert!(matches!(origin, VertexOrigin::Primitive));
+        }
     }
 }

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use rustkernel_math::{Point3, Vec3};
 use rustkernel_topology::arena::Idx;
-use rustkernel_topology::evolution::{FaceOrigin, ShapeEvolution};
+use rustkernel_topology::evolution::{EdgeOrigin, FaceOrigin, ShapeEvolution, VertexOrigin};
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 use tracing::info_span;
@@ -427,6 +427,15 @@ pub fn fillet_edges_into(
     }
 
     match_twins_from_map(topo, &he_map);
+
+    // Edge and vertex provenance — rebuild creates entirely new topology.
+    let (_, new_edges, new_verts) = crate::euler_chamfer::collect_solid_entities(topo, new_solid_idx);
+    for edge in new_edges {
+        evo.record_edge(edge, EdgeOrigin::Primitive);
+    }
+    for vert in new_verts {
+        evo.record_vertex(vert, VertexOrigin::Primitive);
+    }
 
     Ok((new_solid_idx, evo))
 }

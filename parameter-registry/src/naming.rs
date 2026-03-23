@@ -156,10 +156,46 @@ impl NamingJournal {
         let old_edge_reverse = self.edge_reverse.clone();
         let old_vertex_reverse = self.vertex_reverse.clone();
 
-        // Clear live reverse maps — we'll rebuild them.
-        self.face_reverse.clear();
-        self.edge_reverse.clear();
-        self.vertex_reverse.clear();
+        // Remove reverse map entries touched by this evolution.
+        // We do NOT clear the entire map — other solids may have live entries
+        // that are unrelated to this operation.
+        for (&face_idx, origin) in &evo.face_provenance {
+            self.face_reverse.remove(&face_idx);
+            // Also remove old source entries (parent has moved to new index).
+            match origin {
+                FaceOrigin::Modified(old) | FaceOrigin::CopiedFrom(old) | FaceOrigin::SplitFrom(old) => {
+                    self.face_reverse.remove(old);
+                }
+                _ => {}
+            }
+        }
+        for &deleted_face in &evo.deleted_faces {
+            self.face_reverse.remove(&deleted_face);
+        }
+        for (&edge_idx, origin) in &evo.edge_provenance {
+            self.edge_reverse.remove(&edge_idx);
+            match origin {
+                EdgeOrigin::Modified(old) | EdgeOrigin::CopiedFrom(old) | EdgeOrigin::SplitFrom(old) => {
+                    self.edge_reverse.remove(old);
+                }
+                _ => {}
+            }
+        }
+        for &deleted_edge in &evo.deleted_edges {
+            self.edge_reverse.remove(&deleted_edge);
+        }
+        for (&vert_idx, origin) in &evo.vertex_provenance {
+            self.vertex_reverse.remove(&vert_idx);
+            match origin {
+                VertexOrigin::Modified(old) | VertexOrigin::CopiedFrom(old) => {
+                    self.vertex_reverse.remove(old);
+                }
+                _ => {}
+            }
+        }
+        for &deleted_vert in &evo.deleted_vertices {
+            self.vertex_reverse.remove(&deleted_vert);
+        }
 
         // Track which EntityRefs got split so we can record split_info.
         let mut split_children: HashMap<EntityRef, Vec<(EntityRef, FaceIdx)>> = HashMap::new();

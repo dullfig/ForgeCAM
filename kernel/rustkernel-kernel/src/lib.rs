@@ -9,7 +9,9 @@ use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
 use rustkernel_geom::AnalyticalGeomStore;
 use rustkernel_solvers::default_pipeline;
-use rustkernel_topology::evolution::ShapeEvolution;
+use rustkernel_topology::evolution::{
+    EdgeOrigin, FaceOrigin, ShapeEvolution, VertexOrigin,
+};
 
 mod primitives;
 mod sweeps;
@@ -92,6 +94,27 @@ impl Kernel {
     pub fn copy_solid(&mut self, solid: SolidIdx) -> SolidIdx {
         let mut remap = IndexRemap::new();
         copy_solid_impl(&mut self.topo, &mut self.geom, solid, &mut remap)
+    }
+
+    /// Deep-copy a solid and build a CopiedFrom evolution record.
+    /// Used by transforms to record that every entity in the result
+    /// is a copy of the corresponding entity in the original.
+    fn copy_solid_with_evolution(&mut self, solid: SolidIdx) -> (SolidIdx, ShapeEvolution) {
+        let mut remap = IndexRemap::new();
+        let new_solid = copy_solid_impl(&mut self.topo, &mut self.geom, solid, &mut remap);
+
+        let mut evo = ShapeEvolution::new();
+        for (&old_face, &new_face) in &remap.faces {
+            evo.record_face(new_face, FaceOrigin::CopiedFrom(old_face));
+        }
+        for (&old_edge, &new_edge) in &remap.edges {
+            evo.record_edge(new_edge, EdgeOrigin::CopiedFrom(old_edge));
+        }
+        for (&old_vert, &new_vert) in &remap.vertices {
+            evo.record_vertex(new_vert, VertexOrigin::CopiedFrom(old_vert));
+        }
+
+        (new_solid, evo)
     }
 
     // Primitives, transforms, booleans, sweeps, local ops, export, persistence,
@@ -1789,6 +1812,88 @@ mod tests {
         let taken = k.take_evolution();
         assert!(taken.is_some());
         assert!(k.last_evolution().is_none());
+    }
+
+    #[test]
+    fn test_transform_evolution_translate() {
+        use rustkernel_topology::evolution::{FaceOrigin, EdgeOrigin, VertexOrigin};
+
+        let mut k = Kernel::new();
+        let box_s = k.make_box(2.0, 2.0, 2.0);
+
+        // Snapshot original entities.
+        let orig_faces: Vec<_> = k.topo.solid_faces(box_s);
+        let orig_face_count = orig_faces.len();
+
+        let translated = k.translate(box_s, Vec3::new(10.0, 0.0, 0.0));
+        let evo = k.last_evolution().expect("translate should produce evolution");
+
+        // Every face in the result should be CopiedFrom an original face.
+        assert_eq!(evo.face_provenance.len(), orig_face_count);
+        for origin in evo.face_provenance.values() {
+            assert!(matches!(origin, FaceOrigin::CopiedFrom(_)));
+        }
+
+        // Edges and vertices should also be CopiedFrom.
+        assert!(!evo.edge_provenance.is_empty());
+        for origin in evo.edge_provenance.values() {
+            assert!(matches!(origin, EdgeOrigin::CopiedFrom(_)));
+        }
+        assert!(!evo.vertex_provenance.is_empty());
+        for origin in evo.vertex_provenance.values() {
+            assert!(matches!(origin, VertexOrigin::CopiedFrom(_)));
+        }
+
+        // No deletions (it's a copy, original still exists).
+        assert!(evo.deleted_faces.is_empty());
+        assert!(evo.deleted_edges.is_empty());
+        assert!(evo.deleted_vertices.is_empty());
+
+        // Verify the mapping: each CopiedFrom should reference an original face.
+        let orig_face_set: std::collections::HashSet<_> = orig_faces.into_iter().collect();
+        for origin in evo.face_provenance.values() {
+            if let FaceOrigin::CopiedFrom(src) = origin {
+                assert!(orig_face_set.contains(src), "CopiedFrom should reference original face");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transform_evolution_rotate() {
+        use rustkernel_topology::evolution::FaceOrigin;
+
+        let mut k = Kernel::new();
+        let box_s = k.make_box(2.0, 2.0, 2.0);
+        let _rotated = k.rotate(box_s, Point3::origin(), Vec3::z(), std::f64::consts::FRAC_PI_4);
+
+        let evo = k.last_evolution().expect("rotate should produce evolution");
+        assert_eq!(evo.face_provenance.len(), 6);
+        for origin in evo.face_provenance.values() {
+            assert!(matches!(origin, FaceOrigin::CopiedFrom(_)));
+        }
+        assert!(!evo.edge_provenance.is_empty());
+        assert!(!evo.vertex_provenance.is_empty());
+    }
+
+    #[test]
+    fn test_euler_chamfer_edge_vertex_evolution() {
+        let mut k = Kernel::new();
+        let box_s = k.make_box(2.0, 2.0, 2.0);
+
+        let edges = rustkernel_builders::edge_analysis::solid_edges(&k.topo, box_s);
+        // Pick one convex edge.
+        let edge = edges[0];
+
+        let _result = k.euler_chamfer_edges(box_s, &[edge], 0.3).unwrap();
+        let evo = k.last_evolution().expect("chamfer should produce evolution");
+
+        // Full provenance should be populated.
+        assert!(!evo.face_provenance.is_empty());
+        assert!(!evo.edge_provenance.is_empty());
+        assert!(!evo.vertex_provenance.is_empty());
+
+        // At least one deleted edge (the chamfered one).
+        assert!(evo.deleted_edges.contains(&edge));
     }
 
     // --- Offset tests ---

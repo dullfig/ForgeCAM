@@ -12,3 +12,5 @@ tracing = "0.1"
 
 [dev-dependencies]
 serde_json = "1"
+rustkernel-kernel = { path = "../kernel/rustkernel-kernel" }
+rustkernel-builders = { path = "../kernel/rustkernel-builders" }

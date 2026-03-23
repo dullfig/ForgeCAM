@@ -12,7 +12,7 @@ use rustkernel_topology::euler::{
     find_he_from_vertex, find_prev_he, kef, kev, kev_same_loop, mef, semv, EulerError, SemvResult,
 };
 use rustkernel_topology::evolution::{
-    FaceOrigin, ShapeEvolution,
+    EdgeOrigin, FaceOrigin, ShapeEvolution, VertexOrigin,
 };
 use rustkernel_topology::store::TopoStore;
 use rustkernel_topology::topo::*;
@@ -957,6 +957,51 @@ pub fn euler_chamfer_edges(
         }
     }
 
+    // Edge provenance.
+    let chamfered_edge_set: HashSet<EdgeIdx> = edges.iter().copied().collect();
+    // Edges adjacent to chamfered edges (share a face with a chamfered edge).
+    let mut adjacent_edges: HashSet<EdgeIdx> = HashSet::new();
+    for &face in &adjacent_faces {
+        if faces_before.contains(&face) {
+            let loop_idx = topo.faces.get(face).outer_loop;
+            let start = topo.loops.get(loop_idx).half_edge;
+            let mut he = start;
+            loop {
+                let e = topo.half_edges.get(he).edge;
+                if !chamfered_edge_set.contains(&e) {
+                    adjacent_edges.insert(e);
+                }
+                he = topo.half_edges.get(he).next;
+                if he == start { break; }
+            }
+        }
+    }
+
+    for &edge in &edges_after {
+        if edges_before.contains(&edge) {
+            if adjacent_edges.contains(&edge) {
+                evo.record_edge(edge, EdgeOrigin::Modified(edge));
+            } else {
+                evo.record_edge(edge, EdgeOrigin::CopiedFrom(edge));
+            }
+        } else {
+            // New edge — created by chamfer/corner Euler ops.
+            // Check if it borders a chamfer face (FromIntersection of adjacent faces)
+            // or is entirely new (Primitive for corner edges).
+            evo.record_edge(edge, EdgeOrigin::Primitive);
+        }
+    }
+
+    // Vertex provenance.
+    for &vert in &verts_after {
+        if verts_before.contains(&vert) {
+            evo.record_vertex(vert, VertexOrigin::CopiedFrom(vert));
+        } else {
+            // New vertex — chamfer contact point or corner vertex.
+            evo.record_vertex(vert, VertexOrigin::Primitive);
+        }
+    }
+
     // Deleted faces/edges/vertices.
     for &face in &faces_before {
         if !faces_after.contains(&face) {
@@ -1365,7 +1410,7 @@ mod tests {
 
     #[test]
     fn test_euler_chamfer_one_edge_evolution() {
-        use rustkernel_topology::evolution::FaceOrigin;
+        use rustkernel_topology::evolution::{EdgeOrigin, FaceOrigin, VertexOrigin};
 
         let mut topo = TopoStore::new();
         let mut geom = AnalyticalGeomStore::new();
@@ -1398,6 +1443,34 @@ mod tests {
 
         // The chamfered edge should be in deleted_edges.
         assert!(evo.deleted_edges.contains(&edge), "Chamfered edge should be deleted");
+
+        // Edge provenance: all edges in result should be tracked.
+        assert!(!evo.edge_provenance.is_empty(), "Should have edge provenance");
+        let copied_edges = evo.edge_provenance.values()
+            .filter(|o| matches!(o, EdgeOrigin::CopiedFrom(_)))
+            .count();
+        let modified_edges = evo.edge_provenance.values()
+            .filter(|o| matches!(o, EdgeOrigin::Modified(_)))
+            .count();
+        let new_edges = evo.edge_provenance.values()
+            .filter(|o| matches!(o, EdgeOrigin::Primitive))
+            .count();
+        // Chamfer replaces 1 edge with 2 new edges (chamfer face borders).
+        // Adjacent edges on the 2 modified faces get Modified provenance.
+        assert!(copied_edges > 0, "Some edges should be CopiedFrom");
+        assert!(modified_edges > 0, "Adjacent edges should be Modified");
+        assert!(new_edges > 0, "Chamfer should create new edges");
+
+        // Vertex provenance: all vertices in result should be tracked.
+        assert!(!evo.vertex_provenance.is_empty(), "Should have vertex provenance");
+        let copied_verts = evo.vertex_provenance.values()
+            .filter(|o| matches!(o, VertexOrigin::CopiedFrom(_)))
+            .count();
+        let new_verts = evo.vertex_provenance.values()
+            .filter(|o| matches!(o, VertexOrigin::Primitive))
+            .count();
+        assert!(copied_verts > 0, "Original vertices should be CopiedFrom");
+        assert!(new_verts > 0, "Chamfer contact points should be new vertices");
     }
 
     #[test]
