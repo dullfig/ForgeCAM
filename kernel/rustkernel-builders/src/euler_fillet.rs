@@ -166,9 +166,12 @@ fn compute_fillet_geometry(
     // Surface normal at face_a — works for any surface type
     let n1 = surface_normal_at_point(geom, topo, adj.face_a, &mid);
 
-    // Fillet center: vertex + d*inward_face_a - R*normal_face_a
-    let center_a = pt_a + d * inward_1 - radius * n1;
-    let center_b = pt_b + d * inward_1 - radius * n1;
+    // Fillet center: for convex edges, center is behind the face (- R * normal).
+    // For concave edges, center is inside the concavity (+ R * normal).
+    let is_concave = base.convexity == crate::edge_analysis::EdgeConvexity::Concave;
+    let normal_sign = if is_concave { 1.0 } else { -1.0 };
+    let center_a = pt_a + d * inward_1 + normal_sign * radius * n1;
+    let center_b = pt_b + d * inward_1 + normal_sign * radius * n1;
 
     let subtended_angle = std::f64::consts::PI - alpha;
 
@@ -178,7 +181,7 @@ fn compute_fillet_geometry(
     // Determine fillet surface type from the adjacent face surfaces
     let surf_a = &geom.surfaces[topo.faces.get(adj.face_a).surface_id as usize];
     let surf_b = &geom.surfaces[topo.faces.get(adj.face_b).surface_id as usize];
-    let fillet_surface = determine_fillet_surface(surf_a, surf_b, &center_a, &edge_dir, radius);
+    let fillet_surface = determine_fillet_surface(surf_a, surf_b, &center_a, &edge_dir, radius, is_concave);
 
     Ok(FilletGeometry {
         base,

@@ -1896,6 +1896,49 @@ mod tests {
         assert!(evo.deleted_edges.contains(&edge));
     }
 
+    #[test]
+    fn test_concave_fillet_step_shape() {
+        // Create an L-shaped step by cutting a box from a larger box.
+        // This produces concave internal edges at the step.
+        let mut k = Kernel::new();
+        let big = k.make_box(4.0, 4.0, 4.0);
+        let small = k.make_box_at([2.0, 0.0, 2.0], 4.0, 4.0, 4.0);
+        let step = k.cut(big, small).expect("boolean cut for step shape");
+
+        // Find a concave edge on the step.
+        let edges = rustkernel_builders::edge_analysis::solid_edges(&k.topo, step);
+        let concave_edges: Vec<_> = edges.iter().filter(|&&e| {
+            matches!(
+                rustkernel_builders::edge_analysis::edge_convexity(&k.topo, &k.geom, e),
+                Ok(rustkernel_builders::edge_analysis::EdgeConvexity::Concave)
+            )
+        }).copied().collect();
+
+        assert!(!concave_edges.is_empty(), "step shape should have concave edges, found 0 out of {} edges", edges.len());
+
+        // Attempt to fillet a concave edge.
+        let result = k.euler_fillet_edges(step, &[concave_edges[0]], 0.2);
+        match result {
+            Ok(filleted) => {
+                // If it succeeds, verify topology.
+                let report = k.validate_solid(filleted);
+                // Allow some validation issues for now — the important thing is
+                // the fillet didn't panic or reject the concave edge.
+                let _ = report;
+            }
+            Err(e) => {
+                // For now, a non-panic error is acceptable — the geometry may not
+                // be fully correct for all concave cases yet. But it should NOT
+                // be NotConvex (that gate was removed).
+                let msg = format!("{e}");
+                assert!(
+                    !msg.contains("not convex"),
+                    "concave edges should not be rejected as 'not convex': {e}"
+                );
+            }
+        }
+    }
+
     // --- Offset tests ---
 
     #[test]

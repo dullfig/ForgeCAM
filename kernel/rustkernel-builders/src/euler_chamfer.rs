@@ -98,6 +98,8 @@ pub(crate) struct ContactGeometry {
     pub(crate) c1_b: Point3,
     pub(crate) c2_a: Point3,
     pub(crate) c2_b: Point3,
+    /// Convexity of the edge (Convex, Concave, or Flat).
+    pub(crate) convexity: EdgeConvexity,
 }
 
 /// Topology-dependent contact data (live HE/face/vertex queries).
@@ -138,6 +140,47 @@ pub(crate) fn compute_inward(
     }
 }
 
+/// Compute the contact point on a surface at `distance` from `edge_pt` along `inward`.
+///
+/// For planar faces, linear projection is exact. For curved analytical faces
+/// (cylinder, sphere), projects the linearly-offset point back onto the surface
+/// so the contact lies on the actual face geometry.
+fn contact_on_surface(
+    surf: &SurfaceDef,
+    edge_pt: &Point3,
+    inward: &Vec3,
+    distance: f64,
+) -> Point3 {
+    let linear = *edge_pt + distance * inward;
+    match surf {
+        SurfaceDef::Plane(_) => linear,
+        SurfaceDef::Cylinder(cyl) => {
+            // Project onto the cylinder: keep the axial component, normalize radial to |radius|.
+            let axis = cyl.axis.normalize();
+            let to_pt = linear - cyl.origin;
+            let axial = to_pt.dot(&axis);
+            let radial = to_pt - axial * axis;
+            let radial_len = radial.norm();
+            if radial_len < 1e-15 {
+                return linear; // degenerate — on axis
+            }
+            let r = cyl.radius.abs();
+            cyl.origin + axial * axis + radial * (r / radial_len)
+        }
+        SurfaceDef::Sphere(sph) => {
+            let dir = linear - sph.center;
+            let len = dir.norm();
+            if len < 1e-15 {
+                return linear;
+            }
+            let r = sph.radius.abs();
+            sph.center + dir * (r / len)
+        }
+        // Torus, Cone, NURBS: fall back to linear projection for now.
+        _ => linear,
+    }
+}
+
 /// Compute geometry-only contact positions for one edge (idempotent, topology-independent).
 pub(crate) fn compute_contact_geometry(
     topo: &TopoStore,
@@ -146,7 +189,7 @@ pub(crate) fn compute_contact_geometry(
     distance: f64,
 ) -> Result<ContactGeometry, EulerChamferError> {
     let conv = edge_convexity(topo, geom, edge_idx)?;
-    if conv != EdgeConvexity::Convex {
+    if conv == EdgeConvexity::Flat {
         return Err(EulerChamferError::NotConvex(edge_idx));
     }
 
@@ -165,14 +208,20 @@ pub(crate) fn compute_contact_geometry(
     let inward_1 = compute_inward(topo, geom, adj.face_a, &mid, &edge_dir);
     let inward_2 = compute_inward(topo, geom, adj.face_b, &mid, &edge_dir);
 
+    // Compute contact points. For planar faces, linear projection is exact.
+    // For curved faces, project the linearly-offset point back onto the surface.
+    let surf_a = &geom.surfaces[topo.faces.get(adj.face_a).surface_id as usize];
+    let surf_b = &geom.surfaces[topo.faces.get(adj.face_b).surface_id as usize];
+
     Ok(ContactGeometry {
         edge: edge_idx,
         pt_a,
         pt_b,
-        c1_a: pt_a + distance * inward_1,
-        c1_b: pt_b + distance * inward_1,
-        c2_a: pt_a + distance * inward_2,
-        c2_b: pt_b + distance * inward_2,
+        c1_a: contact_on_surface(surf_a, &pt_a, &inward_1, distance),
+        c1_b: contact_on_surface(surf_a, &pt_b, &inward_1, distance),
+        c2_a: contact_on_surface(surf_b, &pt_a, &inward_2, distance),
+        c2_b: contact_on_surface(surf_b, &pt_b, &inward_2, distance),
+        convexity: conv,
     })
 }
 
@@ -888,6 +937,14 @@ pub fn euler_chamfer_edges(
     distance: f64,
 ) -> Result<(SolidIdx, ShapeEvolution), EulerChamferError> {
     let _span = info_span!("euler_chamfer_edges", n_edges = edges.len(), distance).entered();
+
+    // Chamfers are only valid on convex edges.
+    for &edge_idx in edges {
+        let conv = edge_convexity(topo, geom, edge_idx)?;
+        if conv != EdgeConvexity::Convex {
+            return Err(EulerChamferError::NotConvex(edge_idx));
+        }
+    }
 
     // Snapshot entities before modification.
     let (faces_before, edges_before, verts_before) = collect_solid_entities(topo, solid);
