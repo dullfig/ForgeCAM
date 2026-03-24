@@ -8,8 +8,8 @@ use rustkernel_topology::intersection::{
     IntersectionCurve, IntersectionPipeline, SurfaceSurfaceResult,
 };
 use rustkernel_topology::store::TopoStore;
-use rustkernel_topology::evolution::{FaceOrigin, ShapeEvolution};
-use rustkernel_topology::topo::{FaceIdx, SolidIdx};
+use rustkernel_topology::evolution::{EdgeOrigin, FaceOrigin, ShapeEvolution, VertexOrigin};
+use rustkernel_topology::topo::{EdgeIdx, FaceIdx, SolidIdx, VertexIdx};
 use tracing::{debug, info_span, warn};
 
 use crate::broad_phase::find_interfering_face_pairs;
@@ -233,11 +233,14 @@ pub fn boolean_op(
 
     // Step 6: Build shape evolution from split maps + copy map + selection.
     let evolution = build_boolean_evolution(
+        topo,
+        geom,
         &faces_a,
         &faces_b,
         &result_a.split_map,
         &result_b.split_map,
         &build.face_copy_map,
+        build.solid,
     );
 
     Ok(BooleanResult {
@@ -253,11 +256,14 @@ pub fn boolean_op(
 /// to determine the provenance of each result face and which input faces
 /// were deleted.
 fn build_boolean_evolution(
+    topo: &TopoStore,
+    geom: &AnalyticalGeomStore,
     faces_a: &[FaceIdx],
     faces_b: &[FaceIdx],
     split_map_a: &HashMap<FaceIdx, Vec<FaceIdx>>,
     split_map_b: &HashMap<FaceIdx, Vec<FaceIdx>>,
     face_copy_map: &[(FaceIdx, FaceIdx)],
+    result_solid: SolidIdx,
 ) -> ShapeEvolution {
     let mut evo = ShapeEvolution::new();
 
@@ -270,13 +276,9 @@ fn build_boolean_evolution(
         let origin = find_original_face(source, split_map_a, split_map_b);
         match origin {
             Some(original) => {
-                // This result face came from splitting an original face.
                 evo.record_face(result, FaceOrigin::SplitFrom(original));
             }
             None => {
-                // This source face wasn't split — it's a direct copy from the
-                // original solid (possibly with modified boundary from boolean
-                // trimming, but topologically the same face).
                 evo.record_face(result, FaceOrigin::CopiedFrom(source));
             }
         }
@@ -285,20 +287,179 @@ fn build_boolean_evolution(
     // Determine which original faces were deleted (not in the result).
     for &face in faces_a.iter().chain(faces_b.iter()) {
         if let Some(sub_faces) = split_map_a.get(&face).or_else(|| split_map_b.get(&face)) {
-            // Face was split. Check if any sub-face made it into the result.
             let any_survived = sub_faces.iter().any(|sf| copied_sources.contains(sf));
             if !any_survived {
                 evo.record_deleted_face(face);
             }
         } else {
-            // Face was not split. Check if it was copied into the result.
             if !copied_sources.contains(&face) {
                 evo.record_deleted_face(face);
             }
         }
     }
 
+    // --- Edge and vertex provenance ---
+    // Walk the result solid to collect all edges and vertices.
+    // Classify them based on adjacency to faces whose provenance we know.
+
+    // Collect all original edges/vertices from both input solids.
+    let mut orig_edges_a: HashSet<EdgeIdx> = HashSet::new();
+    let mut orig_edges_b: HashSet<EdgeIdx> = HashSet::new();
+    let mut orig_verts_a: HashSet<VertexIdx> = HashSet::new();
+    let mut orig_verts_b: HashSet<VertexIdx> = HashSet::new();
+
+    for &face in faces_a {
+        collect_face_edges_verts(topo, face, &mut orig_edges_a, &mut orig_verts_a);
+    }
+    for &face in faces_b {
+        collect_face_edges_verts(topo, face, &mut orig_edges_b, &mut orig_verts_b);
+    }
+
+    // Collect result solid edges/vertices + build position maps for matching.
+    let mut result_edges: HashSet<EdgeIdx> = HashSet::new();
+    let mut result_verts: HashSet<VertexIdx> = HashSet::new();
+    let result_faces = topo.solid_faces(result_solid);
+    for &face in &result_faces {
+        collect_face_edges_verts(topo, face, &mut result_edges, &mut result_verts);
+    }
+
+    // Build position → original vertex maps for matching by position.
+    let orig_vert_positions_a = build_vert_position_map(topo, geom, &orig_verts_a);
+    let orig_vert_positions_b = build_vert_position_map(topo, geom, &orig_verts_b);
+
+    // Vertex provenance: match result vertices to originals by position.
+    for &vert in &result_verts {
+        let pos = geom.point(topo.vertices.get(vert).point_id);
+        let key = pos_key(&pos);
+        if orig_vert_positions_a.contains_key(&key) {
+            evo.record_vertex(vert, VertexOrigin::CopiedFrom(*orig_vert_positions_a.get(&key).unwrap()));
+        } else if orig_vert_positions_b.contains_key(&key) {
+            evo.record_vertex(vert, VertexOrigin::CopiedFrom(*orig_vert_positions_b.get(&key).unwrap()));
+        } else {
+            // New vertex — created at a face-face intersection.
+            evo.record_vertex(vert, VertexOrigin::Primitive);
+        }
+    }
+
+    // Edge provenance: match result edges to originals by endpoint positions.
+    let orig_edge_endpoints_a = build_edge_endpoint_map(topo, geom, &orig_edges_a);
+    let orig_edge_endpoints_b = build_edge_endpoint_map(topo, geom, &orig_edges_b);
+
+    for &edge in &result_edges {
+        let (start, end) = edge_endpoint_key(topo, geom, edge);
+        let key = ordered_edge_key(start, end);
+        if let Some(&orig_edge) = orig_edge_endpoints_a.get(&key) {
+            evo.record_edge(edge, EdgeOrigin::CopiedFrom(orig_edge));
+        } else if let Some(&orig_edge) = orig_edge_endpoints_b.get(&key) {
+            evo.record_edge(edge, EdgeOrigin::CopiedFrom(orig_edge));
+        } else {
+            // New edge — created at a face-face intersection.
+            evo.record_edge(edge, EdgeOrigin::Primitive);
+        }
+    }
+
+    // Deleted edges/vertices from original solids.
+    for &edge in orig_edges_a.iter().chain(orig_edges_b.iter()) {
+        let (start, end) = edge_endpoint_key(topo, geom, edge);
+        let key = ordered_edge_key(start, end);
+        let survived = result_edges.iter().any(|&re| {
+            let (rs, re_end) = edge_endpoint_key(topo, geom, re);
+            ordered_edge_key(rs, re_end) == key
+        });
+        if !survived {
+            evo.record_deleted_edge(edge);
+        }
+    }
+
+    for &vert in orig_verts_a.iter().chain(orig_verts_b.iter()) {
+        let pos = geom.point(topo.vertices.get(vert).point_id);
+        let key = pos_key(&pos);
+        let survived = result_verts.iter().any(|&rv| {
+            let rp = geom.point(topo.vertices.get(rv).point_id);
+            pos_key(&rp) == key
+        });
+        if !survived {
+            evo.deleted_vertices.push(vert);
+        }
+    }
+
     evo
+}
+
+// --- Helpers for edge/vertex provenance ---
+
+fn collect_face_edges_verts(
+    topo: &TopoStore,
+    face: FaceIdx,
+    edges: &mut HashSet<EdgeIdx>,
+    verts: &mut HashSet<VertexIdx>,
+) {
+    let loop_idx = topo.faces.get(face).outer_loop;
+    let start = topo.loops.get(loop_idx).half_edge;
+    let mut he = start;
+    loop {
+        edges.insert(topo.half_edges.get(he).edge);
+        verts.insert(topo.half_edges.get(he).origin);
+        he = topo.half_edges.get(he).next;
+        if he == start { break; }
+    }
+}
+
+/// Quantize a position to u64 for hash-based matching (tolerance ~1e-9).
+fn pos_key(pt: &Point3) -> (i64, i64, i64) {
+    let scale = 1e9;
+    (
+        (pt.x * scale).round() as i64,
+        (pt.y * scale).round() as i64,
+        (pt.z * scale).round() as i64,
+    )
+}
+
+fn build_vert_position_map(
+    topo: &TopoStore,
+    geom: &AnalyticalGeomStore,
+    verts: &HashSet<VertexIdx>,
+) -> HashMap<(i64, i64, i64), VertexIdx> {
+    let mut map = HashMap::new();
+    for &v in verts {
+        let pos = geom.point(topo.vertices.get(v).point_id);
+        map.entry(pos_key(&pos)).or_insert(v);
+    }
+    map
+}
+
+fn edge_endpoint_key(
+    topo: &TopoStore,
+    geom: &AnalyticalGeomStore,
+    edge: EdgeIdx,
+) -> ((i64, i64, i64), (i64, i64, i64)) {
+    let he0 = topo.edges.get(edge).half_edges[0];
+    let v0 = topo.half_edges.get(he0).origin;
+    let p0 = geom.point(topo.vertices.get(v0).point_id);
+    let next = topo.half_edges.get(he0).next;
+    let v1 = topo.half_edges.get(next).origin;
+    let p1 = geom.point(topo.vertices.get(v1).point_id);
+    (pos_key(&p0), pos_key(&p1))
+}
+
+fn ordered_edge_key(
+    a: (i64, i64, i64),
+    b: (i64, i64, i64),
+) -> ((i64, i64, i64), (i64, i64, i64)) {
+    if a <= b { (a, b) } else { (b, a) }
+}
+
+fn build_edge_endpoint_map(
+    topo: &TopoStore,
+    geom: &AnalyticalGeomStore,
+    edges: &HashSet<EdgeIdx>,
+) -> HashMap<((i64, i64, i64), (i64, i64, i64)), EdgeIdx> {
+    let mut map = HashMap::new();
+    for &e in edges {
+        let (a, b) = edge_endpoint_key(topo, geom, e);
+        map.entry(ordered_edge_key(a, b)).or_insert(e);
+    }
+    map
 }
 
 /// Find the original (pre-split) face that a sub-face came from.
@@ -1133,6 +1294,64 @@ mod tests {
                 "Deleted face {} should be from original solids", df.raw()
             );
         }
+
+        // --- Edge/vertex provenance ---
+        assert!(!evo.edge_provenance.is_empty(), "Should have edge provenance");
+        assert!(!evo.vertex_provenance.is_empty(), "Should have vertex provenance");
+
+        // Every edge/vertex in the result solid should have provenance.
+        let result_shell = topo.solids.get(br.solid).outer_shell();
+        let result_faces_list = &topo.shells.get(result_shell).faces;
+        let mut result_edges_check = HashSet::new();
+        let mut result_verts_check = HashSet::new();
+        for &rf in result_faces_list {
+            let loop_idx = topo.faces.get(rf).outer_loop;
+            let start = topo.loops.get(loop_idx).half_edge;
+            let mut he = start;
+            loop {
+                result_edges_check.insert(topo.half_edges.get(he).edge);
+                result_verts_check.insert(topo.half_edges.get(he).origin);
+                he = topo.half_edges.get(he).next;
+                if he == start { break; }
+            }
+        }
+        for &re in &result_edges_check {
+            assert!(
+                evo.edge_provenance.contains_key(&re),
+                "Result edge {} should have provenance", re.raw()
+            );
+        }
+        for &rv in &result_verts_check {
+            assert!(
+                evo.vertex_provenance.contains_key(&rv),
+                "Result vertex {} should have provenance", rv.raw()
+            );
+        }
+
+        // Some edges should be CopiedFrom (surviving edges from original solids).
+        let copied_edges = evo.edge_provenance.values()
+            .filter(|o| matches!(o, EdgeOrigin::CopiedFrom(_)))
+            .count();
+        assert!(copied_edges > 0, "Should have some CopiedFrom edges");
+
+        // Some vertices should be CopiedFrom.
+        let copied_verts = evo.vertex_provenance.values()
+            .filter(|o| matches!(o, VertexOrigin::CopiedFrom(_)))
+            .count();
+        assert!(copied_verts > 0, "Should have some CopiedFrom vertices");
+
+        // Should have some new (Primitive) edges/vertices from intersection.
+        let new_edges = evo.edge_provenance.values()
+            .filter(|o| matches!(o, EdgeOrigin::Primitive))
+            .count();
+        assert!(new_edges > 0, "Should have some new edges from intersection");
+
+        eprintln!("Edge provenance: {} total ({} copied, {} new), {} deleted",
+            evo.edge_provenance.len(), copied_edges, new_edges, evo.deleted_edges.len());
+        eprintln!("Vertex provenance: {} total ({} copied, {} new), {} deleted",
+            evo.vertex_provenance.len(), copied_verts,
+            evo.vertex_provenance.values().filter(|o| matches!(o, VertexOrigin::Primitive)).count(),
+            evo.deleted_vertices.len());
     }
 
     #[test]
