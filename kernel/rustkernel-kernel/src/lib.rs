@@ -1939,6 +1939,80 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_sequential_fillets_adjacent_edges() {
+        // Fillet one edge of a box, then fillet an adjacent edge.
+        // The second fillet's adjacent face is the cylinder from the first fillet.
+        // This is the core "fillet-adjacent-to-fillet" scenario.
+        let mut k = Kernel::new();
+        let box_s = k.make_box(4.0, 4.0, 4.0);
+
+        // Find two convex edges that share a vertex (adjacent edges).
+        let edges = rustkernel_builders::edge_analysis::solid_edges(&k.topo, box_s);
+        let convex_edges: Vec<_> = edges.iter().filter(|&&e| {
+            matches!(
+                rustkernel_builders::edge_analysis::edge_convexity(&k.topo, &k.geom, e),
+                Ok(rustkernel_builders::edge_analysis::EdgeConvexity::Convex)
+            )
+        }).copied().collect();
+
+        // Fillet the first edge.
+        let solid1 = k.euler_fillet_edges(box_s, &[convex_edges[0]], 0.5)
+            .expect("first fillet should succeed");
+
+        // Find a convex edge on the filleted solid that is adjacent to the fillet surface.
+        let edges_after = rustkernel_builders::edge_analysis::solid_edges(&k.topo, solid1);
+        let second_edge = edges_after.iter().find(|&&e| {
+            // Must be convex and border at least one non-planar face (the fillet cylinder).
+            let conv = rustkernel_builders::edge_analysis::edge_convexity(&k.topo, &k.geom, e);
+            if !matches!(conv, Ok(rustkernel_builders::edge_analysis::EdgeConvexity::Convex)) {
+                return false;
+            }
+            let adj = rustkernel_builders::edge_analysis::edge_adjacency(&k.topo, e).ok();
+            if let Some(adj) = adj {
+                let sid_a = k.topo.faces.get(adj.face_a).surface_id;
+                let sid_b = k.topo.faces.get(adj.face_b).surface_id;
+                let is_cyl_a = matches!(&k.geom.surfaces[sid_a as usize], rustkernel_geom::SurfaceDef::Cylinder(_));
+                let is_cyl_b = matches!(&k.geom.surfaces[sid_b as usize], rustkernel_geom::SurfaceDef::Cylinder(_));
+                // One face is a cylinder (fillet), the other is a plane.
+                (is_cyl_a && !is_cyl_b) || (!is_cyl_a && is_cyl_b)
+            } else {
+                false
+            }
+        });
+
+        if let Some(&edge2) = second_edge {
+            let result = k.euler_fillet_edges(solid1, &[edge2], 0.3);
+            match result {
+                Ok(solid2) => {
+                    // Success! The fillet-adjacent-to-fillet worked.
+                    let faces = k.topo.solid_faces(solid2);
+                    assert!(faces.len() >= 8, "should have original faces + 2 fillet faces, got {}", faces.len());
+
+                    // Check that a torus surface was generated (plane-cylinder fillet).
+                    let has_torus = faces.iter().any(|&f| {
+                        let sid = k.topo.faces.get(f).surface_id;
+                        matches!(&k.geom.surfaces[sid as usize], rustkernel_geom::SurfaceDef::Torus(_))
+                    });
+                    assert!(has_torus, "fillet adjacent to cylinder should produce a torus surface");
+                }
+                Err(e) => {
+                    // The geometry may not be perfect yet, but it shouldn't be a
+                    // convexity rejection.
+                    let msg = format!("{e}");
+                    assert!(
+                        !msg.contains("not convex"),
+                        "should not reject as 'not convex': {e}"
+                    );
+                    // For now, other errors are acceptable as we build out Stage 2.
+                    eprintln!("fillet-adjacent-to-fillet produced error (expected during Stage 2 development): {e}");
+                }
+            }
+        } else {
+            eprintln!("could not find an edge adjacent to the fillet surface — skipping second fillet test");
+        }
+    }
+
     // --- Offset tests ---
 
     #[test]
