@@ -1,7 +1,10 @@
 slint::include_modules!();
 
+mod viewport;
+
 use slint::wgpu_28::wgpu;
 use slint::wgpu_28::{WGPUConfiguration, WGPUSettings};
+use viewport::Vertex;
 
 // ── Gradient uniforms ────────────────────────────────────────────────
 
@@ -31,83 +34,23 @@ impl GradientUniforms {
     }
 }
 
-// ── Cube mesh data ───────────────────────────────────────────────────
-
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-}
-
-impl Vertex {
-    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
-        array_stride: std::mem::size_of::<Vertex>() as u64,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &[
-            wgpu::VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: wgpu::VertexFormat::Float32x3,
-            },
-            wgpu::VertexAttribute {
-                offset: 12,
-                shader_location: 1,
-                format: wgpu::VertexFormat::Float32x3,
-            },
-        ],
-    };
-}
-
-/// 24 vertices (4 per face, unique normals), 36 indices.
-fn cube_mesh() -> (Vec<Vertex>, Vec<u16>) {
-    let v = |pos: [f32; 3], n: [f32; 3]| Vertex {
-        position: pos,
-        normal: n,
-    };
-
-    let vertices = vec![
-        // Front (+Z)
-        v([-1.0, -1.0, 1.0], [0.0, 0.0, 1.0]),
-        v([1.0, -1.0, 1.0], [0.0, 0.0, 1.0]),
-        v([1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
-        v([-1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
-        // Back (-Z)
-        v([1.0, -1.0, -1.0], [0.0, 0.0, -1.0]),
-        v([-1.0, -1.0, -1.0], [0.0, 0.0, -1.0]),
-        v([-1.0, 1.0, -1.0], [0.0, 0.0, -1.0]),
-        v([1.0, 1.0, -1.0], [0.0, 0.0, -1.0]),
-        // Right (+X)
-        v([1.0, -1.0, 1.0], [1.0, 0.0, 0.0]),
-        v([1.0, -1.0, -1.0], [1.0, 0.0, 0.0]),
-        v([1.0, 1.0, -1.0], [1.0, 0.0, 0.0]),
-        v([1.0, 1.0, 1.0], [1.0, 0.0, 0.0]),
-        // Left (-X)
-        v([-1.0, -1.0, -1.0], [-1.0, 0.0, 0.0]),
-        v([-1.0, -1.0, 1.0], [-1.0, 0.0, 0.0]),
-        v([-1.0, 1.0, 1.0], [-1.0, 0.0, 0.0]),
-        v([-1.0, 1.0, -1.0], [-1.0, 0.0, 0.0]),
-        // Top (+Y)
-        v([-1.0, 1.0, 1.0], [0.0, 1.0, 0.0]),
-        v([1.0, 1.0, 1.0], [0.0, 1.0, 0.0]),
-        v([1.0, 1.0, -1.0], [0.0, 1.0, 0.0]),
-        v([-1.0, 1.0, -1.0], [0.0, 1.0, 0.0]),
-        // Bottom (-Y)
-        v([-1.0, -1.0, -1.0], [0.0, -1.0, 0.0]),
-        v([1.0, -1.0, -1.0], [0.0, -1.0, 0.0]),
-        v([1.0, -1.0, 1.0], [0.0, -1.0, 0.0]),
-        v([-1.0, -1.0, 1.0], [0.0, -1.0, 0.0]),
-    ];
-
-    let indices: Vec<u16> = (0..6)
-        .flat_map(|face| {
-            let base = face * 4;
-            [base, base + 1, base + 2, base, base + 2, base + 3]
-        })
-        .collect();
-
-    (vertices, indices)
-}
+// Vertex layout constant for wgpu pipeline setup.
+const VERTEX_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+    array_stride: std::mem::size_of::<Vertex>() as u64,
+    step_mode: wgpu::VertexStepMode::Vertex,
+    attributes: &[
+        wgpu::VertexAttribute {
+            offset: 0,
+            shader_location: 0,
+            format: wgpu::VertexFormat::Float32x3,
+        },
+        wgpu::VertexAttribute {
+            offset: 12,
+            shader_location: 1,
+            format: wgpu::VertexFormat::Float32x3,
+        },
+    ],
+};
 
 // ── Scene uniforms (MVP + light) ─────────────────────────────────────
 
@@ -137,10 +80,11 @@ fn build_scene_uniforms(time: f32, aspect: f32) -> SceneUniforms {
     // Slow rotation
     let angle = time * 0.4;
 
-    let model = Matrix4::from_euler_angles(0.4, angle, 0.15);
+    let model = Matrix4::from_euler_angles(0.3, angle, 0.1);
 
-    let eye = Point3::new(0.0, 1.5, 4.5);
-    let target = Point3::new(0.0, 0.0, 0.0);
+    // Camera positioned for real-world dimensions (kernel uses inches).
+    let eye = Point3::new(3.0, 4.0, 8.0);
+    let target = Point3::new(1.5, 0.5, 0.5);
     let up = Vector3::new(0.0, 1.0, 0.0);
     let view = Matrix4::look_at_rh(&eye, &target, &up);
 
@@ -171,11 +115,11 @@ struct ViewportRenderer {
     gradient_pipeline: wgpu::RenderPipeline,
     gradient_uniform_buf: wgpu::Buffer,
     gradient_bind_group: wgpu::BindGroup,
-    // Cube
-    cube_pipeline: wgpu::RenderPipeline,
-    cube_vertex_buf: wgpu::Buffer,
-    cube_index_buf: wgpu::Buffer,
-    cube_index_count: u32,
+    // Model (was "cube" — now renders kernel solids)
+    model_pipeline: wgpu::RenderPipeline,
+    model_vertex_buf: wgpu::Buffer,
+    model_index_buf: wgpu::Buffer,
+    model_index_count: u32,
     scene_uniform_buf: wgpu::Buffer,
     scene_bind_group: wgpu::BindGroup,
     // Time
@@ -183,7 +127,7 @@ struct ViewportRenderer {
 }
 
 impl ViewportRenderer {
-    fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue, mesh_vertices: &[Vertex], mesh_indices: &[u32]) -> Self {
         let color_format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let depth_format = wgpu::TextureFormat::Depth32Float;
 
@@ -258,9 +202,9 @@ impl ViewportRenderer {
             cache: None,
         });
 
-        // ── Cube pipeline ────────────────────────────────────────
+        // ── Model pipeline (renders kernel solids) ─────────────────
         let cube_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("cube_shader"),
+            label: Some("model_shader"),
             source: wgpu::ShaderSource::Wgsl(CUBE_SHADER.into()),
         });
 
@@ -300,13 +244,13 @@ impl ViewportRenderer {
             immediate_size: 0,
         });
 
-        let cube_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("cube_pipeline"),
+        let model_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("model_pipeline"),
             layout: Some(&cube_pl),
             vertex: wgpu::VertexState {
                 module: &cube_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::LAYOUT],
+                buffers: &[VERTEX_LAYOUT],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -337,24 +281,22 @@ impl ViewportRenderer {
             cache: None,
         });
 
-        // ── Cube mesh buffers ────────────────────────────────────
-        let (vertices, indices) = cube_mesh();
-
-        let cube_vertex_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("cube_verts"),
-            size: (vertices.len() * std::mem::size_of::<Vertex>()) as u64,
+        // ── Model mesh buffers (from kernel tessellation) ────────
+        let model_vertex_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("model_verts"),
+            size: (mesh_vertices.len() * std::mem::size_of::<Vertex>()).max(64) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        queue.write_buffer(&cube_vertex_buf, 0, bytemuck::cast_slice(&vertices));
+        queue.write_buffer(&model_vertex_buf, 0, bytemuck::cast_slice(mesh_vertices));
 
-        let cube_index_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("cube_idxs"),
-            size: (indices.len() * std::mem::size_of::<u16>()) as u64,
+        let model_index_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("model_idxs"),
+            size: (mesh_indices.len() * std::mem::size_of::<u32>()).max(64) as u64,
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        queue.write_buffer(&cube_index_buf, 0, bytemuck::cast_slice(&indices));
+        queue.write_buffer(&model_index_buf, 0, bytemuck::cast_slice(mesh_indices));
 
         Self {
             device: device.clone(),
@@ -362,10 +304,10 @@ impl ViewportRenderer {
             gradient_pipeline,
             gradient_uniform_buf,
             gradient_bind_group,
-            cube_pipeline,
-            cube_vertex_buf,
-            cube_index_buf,
-            cube_index_count: indices.len() as u32,
+            model_pipeline,
+            model_vertex_buf,
+            model_index_buf,
+            model_index_count: mesh_indices.len() as u32,
             scene_uniform_buf,
             scene_bind_group,
             start_time: std::time::Instant::now(),
@@ -452,10 +394,10 @@ impl ViewportRenderer {
             pass.draw(0..3, 0..1);
         }
 
-        // Pass 2: cube with depth
+        // Pass 2: model with depth
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("cube_pass"),
+                label: Some("model_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &color_view,
                     resolve_target: None,
@@ -477,11 +419,11 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.cube_pipeline);
+            pass.set_pipeline(&self.model_pipeline);
             pass.set_bind_group(0, &self.scene_bind_group, &[]);
-            pass.set_vertex_buffer(0, self.cube_vertex_buf.slice(..));
-            pass.set_index_buffer(self.cube_index_buf.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..self.cube_index_count, 0, 0..1);
+            pass.set_vertex_buffer(0, self.model_vertex_buf.slice(..));
+            pass.set_index_buffer(self.model_index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..self.model_index_count, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -596,6 +538,28 @@ fn main() {
     tracing_subscriber::fmt::init();
     tracing::info!("ForgeCAM GUI starting");
 
+    // ── Build kernel scene ──────────────────────────────────────────
+    let mut kernel = rustkernel_kernel::Kernel::new();
+    let scene = viewport::build_demo_scene(&mut kernel);
+
+    // Merge all solid meshes into one draw call for simplicity.
+    let mut all_vertices: Vec<Vertex> = Vec::new();
+    let mut all_indices: Vec<u32> = Vec::new();
+    for (_solid_idx, mesh) in &scene {
+        let base = all_vertices.len() as u32;
+        all_vertices.extend_from_slice(&mesh.vertices);
+        for &idx in &mesh.indices {
+            all_indices.push(base + idx);
+        }
+    }
+    tracing::info!(
+        vertices = all_vertices.len(),
+        triangles = all_indices.len() / 3,
+        solids = scene.len(),
+        "Kernel scene tessellated"
+    );
+
+    // ── Slint + wgpu setup ──────────────────────────────────────────
     let mut settings = WGPUSettings::default();
     settings.power_preference = wgpu::PowerPreference::HighPerformance;
     slint::BackendSelector::new()
@@ -617,7 +581,7 @@ fn main() {
                     } = graphics_api
                     {
                         tracing::info!("wgpu device ready — creating viewport renderer");
-                        renderer = Some(ViewportRenderer::new(device, queue));
+                        renderer = Some(ViewportRenderer::new(device, queue, &all_vertices, &all_indices));
                     }
                 }
                 slint::RenderingState::BeforeRendering => {

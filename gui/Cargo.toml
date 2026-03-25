@@ -11,5 +11,11 @@ nalgebra = { version = "0.34", features = ["serde-serialize"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
+# ForgeCAM kernel
+rustkernel-kernel = { path = "../kernel/rustkernel-kernel" }
+rustkernel-topology = { path = "../kernel/rustkernel-topology" }
+rustkernel-geom = { path = "../kernel/rustkernel-geom" }
+rustkernel-builders = { path = "../kernel/rustkernel-builders" }
+
 [build-dependencies]
 slint-build = "~1.15"
