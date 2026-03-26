@@ -204,19 +204,15 @@ export component App inherits Window {
                 }
 
                 // Mouse input capture for camera control
-                TouchArea {
+                vp-touch := TouchArea {
                     width: 100%;
                     height: 100%;
                     mouse-cursor: default;
 
-                    moved => {
-                        root.mouse-x = self.mouse-x / 1px;
-                        root.mouse-y = self.mouse-y / 1px;
-                        root.mmb-pressed = self.pressed;
-                    }
                     pointer-event(e) => {
-                        if (e.kind == PointerEventKind.down || e.kind == PointerEventKind.up) {
-                            root.shift-held = e.modifiers.shift;
+                        root.shift-held = e.modifiers.shift;
+                        if (e.button == PointerEventButton.middle) {
+                            root.mmb-pressed = e.kind == PointerEventKind.down;
                         }
                     }
                     scroll-event(e) => {
@@ -224,6 +220,12 @@ export component App inherits Window {
                         return accept;
                     }
                 }
+                // Live-bind mouse position from TouchArea (updates every frame,
+                // not just during left-button drags).
+                property <float> vp-mx: vp-touch.mouse-x / 1px;
+                property <float> vp-my: vp-touch.mouse-y / 1px;
+                changed vp-mx => { root.mouse-x = self.vp-mx; }
+                changed vp-my => { root.mouse-y = self.vp-my; }
 
                 // Floating toolbar overlay — centered at top
                 FloatingToolbar {

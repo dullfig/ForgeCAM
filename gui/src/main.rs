@@ -494,18 +494,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
     let l = normalize(scene.light_dir.xyz);
 
-    // Ambient + diffuse + subtle rim light
-    let ambient = 0.15;
-    let diffuse = max(dot(n, l), 0.0) * 0.7;
+    // Two-sided lighting: if normal faces away from light, use flipped normal.
+    // This ensures chamfer faces and back-facing geometry still get lit.
+    let ndotl = dot(n, l);
+    let ambient = 0.18;
+    let diffuse = abs(ndotl) * 0.65;
 
-    // Simple rim/fresnel for edge visibility
-    let view_dir = normalize(vec3<f32>(0.0, 0.3, 1.0));
-    let rim = pow(1.0 - max(dot(n, view_dir), 0.0), 3.0) * 0.15;
+    // Subtle fill light from opposite side (prevents pure-dark faces)
+    let fill = max(-ndotl, 0.0) * 0.15;
 
-    let brightness = ambient + diffuse + rim;
+    let brightness = ambient + diffuse + fill;
     let color = scene.base_color.rgb * brightness;
 
-    // Faint edge darkening (wireframe feel without actual wireframe)
     return vec4<f32>(color, 1.0);
 }
 "#;
@@ -593,8 +593,8 @@ fn main() {
                                         // Shift + MMB: pan
                                         camera.pan(dx, dy);
                                     } else {
-                                        // MMB: orbit
-                                        camera.orbit(-dx * 0.005, -dy * 0.005);
+                                        // MMB: orbit (Y inverted — drag down = look up)
+                                        camera.orbit(-dx * 0.005, dy * 0.005);
                                     }
                                 }
                                 prev_mouse = Some((mx, my));

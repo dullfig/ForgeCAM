@@ -20,6 +20,8 @@ pub struct Camera {
     pub elevation: f32,
     /// Vertical field of view in radians.
     pub fov: f32,
+    /// If true, use orthographic projection instead of perspective.
+    pub orthographic: bool,
 }
 
 impl Camera {
@@ -30,6 +32,7 @@ impl Camera {
             azimuth,
             elevation: elevation.clamp(-1.55, 1.55),
             fov: std::f32::consts::FRAC_PI_4,
+            orthographic: false,
         }
     }
 
@@ -53,9 +56,16 @@ impl Camera {
         Matrix4::look_at_rh(&eye, &self.target, &up)
     }
 
-    /// Build the projection matrix.
+    /// Build the projection matrix (perspective or orthographic).
     pub fn projection_matrix(&self, aspect: f32) -> Matrix4<f32> {
-        Matrix4::new_perspective(aspect, self.fov, 0.01, 1000.0)
+        if self.orthographic {
+            // Orthographic half-extents scale with distance so zoom feels the same.
+            let half_h = self.distance * (self.fov * 0.5).tan();
+            let half_w = half_h * aspect;
+            Matrix4::new_orthographic(-half_w, half_w, -half_h, half_h, 0.01, 1000.0)
+        } else {
+            Matrix4::new_perspective(aspect, self.fov, 0.01, 1000.0)
+        }
     }
 
     /// Build the combined MVP matrix (no model transform — identity).
@@ -72,9 +82,9 @@ impl Camera {
     /// Pan: translate target in the screen plane.
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
         let view = self.view_matrix();
-        // Screen-right and screen-up vectors in world space.
-        let right = Vector3::new(view[(0, 0)], view[(1, 0)], view[(2, 0)]);
-        let up = Vector3::new(view[(0, 1)], view[(1, 1)], view[(2, 1)]);
+        // Screen-right and screen-up in world space are rows of the view matrix.
+        let right = Vector3::new(view[(0, 0)], view[(0, 1)], view[(0, 2)]);
+        let up = Vector3::new(view[(1, 0)], view[(1, 1)], view[(1, 2)]);
 
         // Scale pan by distance so it feels consistent at any zoom level.
         let scale = self.distance * 0.002;
@@ -82,9 +92,11 @@ impl Camera {
     }
 
     /// Zoom: adjust distance (dolly toward/away from target).
+    /// `delta` is raw scroll pixels (typically ±120 per notch on Windows).
     pub fn zoom(&mut self, delta: f32) {
         // Multiplicative zoom so it feels consistent at any distance.
-        let factor = 1.0 - delta * 0.1;
+        // Scale down heavily — scroll deltas are large pixel values.
+        let factor = 1.0 - delta * 0.001;
         self.distance = (self.distance * factor).clamp(0.01, 10000.0);
     }
 }
