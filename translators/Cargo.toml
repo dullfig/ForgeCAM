@@ -1,0 +1,17 @@
+[package]
+name = "forgecam-translators"
+version = "0.1.0"
+edition = "2021"
+description = "STEP/IGES import/export for ForgeCAM"
+
+[dependencies]
+forgecam-geometry = { path = "../geometry" }
+rustkernel-kernel = { path = "../kernel/rustkernel-kernel" }
+rustkernel-topology = { path = "../kernel/rustkernel-topology" }
+rustkernel-geom = { path = "../kernel/rustkernel-geom" }
+rustkernel-math = { path = "../kernel/rustkernel-math" }
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tracing-subscriber = "0.3"
