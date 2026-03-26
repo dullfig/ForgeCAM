@@ -165,6 +165,40 @@ A tool exists once in the shop library. It can appear in multiple machine
 libraries (assigned to a carousel position). A job references tools from
 the machine library.
 
+## Tool Assemblies
+
+The spindle holds an *assembly*, not a tool. Components are interchangeable:
+
+```
+Spindle
+  └── Holder (CAT40 ER32)
+        └── Extension (optional — 6" straight shank)
+              └── Tool (1/2 endmill)
+```
+
+Same endmill in a short holder for a shallow pocket, same endmill in a long
+extension for a deep cavity. Cutting data stays with the tool; collision
+envelope changes with the assembly.
+
+```rust
+pub struct ToolAssembly {
+    pub holder: HolderId,
+    pub extensions: Vec<ExtensionId>,   // zero or more
+    pub tool: ToolId,
+    pub gauge_length: f64,              // measured total stickout
+    pub carousel_position: Option<u32>, // position in this machine's carousel
+}
+```
+
+Each component (holder, extension, tool) has its own profile segments.
+The collision checker concatenates them into one continuous contour:
+holder profile + extension profiles + tool profile = full assembly envelope.
+
+Components are reusable across assemblies:
+- Same holder, ten different tools
+- Same tool, three different stickout configurations
+- Same extension in multiple holder/tool combinations
+
 ## Storage
 
 JSON or MessagePack on disk. One file per library scope:
