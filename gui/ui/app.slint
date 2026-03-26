@@ -73,6 +73,13 @@ export component App inherits Window {
     in-out property <color> gradient-top: #3d4a5c;
     in-out property <color> gradient-bottom: #080a10;
 
+    // Mouse input state (read by Rust each frame for camera control)
+    in-out property <float> mouse-x: 0;
+    in-out property <float> mouse-y: 0;
+    in-out property <float> scroll-delta-y: 0;
+    in-out property <bool> mmb-pressed: false;
+    in-out property <bool> shift-held: false;
+
     // Status bar properties
     in property <string> kernel-status: "Kernel OK";
     in property <string> computation-status: "OP2 generating";
@@ -194,6 +201,28 @@ export component App inherits Window {
                     width: 100%;
                     height: 100%;
                     image-fit: fill;
+                }
+
+                // Mouse input capture for camera control
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: default;
+
+                    moved => {
+                        root.mouse-x = self.mouse-x / 1px;
+                        root.mouse-y = self.mouse-y / 1px;
+                        root.mmb-pressed = self.pressed;
+                    }
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down || e.kind == PointerEventKind.up) {
+                            root.shift-held = e.modifiers.shift;
+                        }
+                    }
+                    scroll-event(e) => {
+                        root.scroll-delta-y = e.delta-y / 1px;
+                        return accept;
+                    }
                 }
 
                 // Floating toolbar overlay — centered at top

@@ -5,6 +5,7 @@ mod viewport;
 use slint::wgpu_28::wgpu;
 use slint::wgpu_28::{WGPUConfiguration, WGPUSettings};
 use viewport::Vertex;
+use viewport::camera::Camera;
 
 // ── Gradient uniforms ────────────────────────────────────────────────
 
@@ -74,26 +75,11 @@ fn mat4_to_array(m: &nalgebra::Matrix4<f32>) -> [[f32; 4]; 4] {
     ]
 }
 
-fn build_scene_uniforms(time: f32, aspect: f32) -> SceneUniforms {
-    use nalgebra::{Matrix4, Point3, Vector3};
+fn build_scene_uniforms(camera: &Camera, aspect: f32) -> SceneUniforms {
+    use nalgebra::{Matrix4, Vector3};
 
-    // Slow rotation
-    let angle = time * 0.4;
-
-    let model = Matrix4::from_euler_angles(0.3, angle, 0.1);
-
-    // Camera positioned for real-world dimensions (kernel uses inches).
-    let eye = Point3::new(3.0, 4.0, 8.0);
-    let target = Point3::new(1.5, 0.5, 0.5);
-    let up = Vector3::new(0.0, 1.0, 0.0);
-    let view = Matrix4::look_at_rh(&eye, &target, &up);
-
-    let fov = std::f32::consts::FRAC_PI_4;
-    let near = 0.1;
-    let far = 100.0;
-    let proj = Matrix4::new_perspective(aspect, fov, near, far);
-
-    let mvp = proj * view * model;
+    let model = Matrix4::identity();
+    let mvp = camera.mvp(aspect) * model;
 
     // Light from upper-left-front
     let light = Vector3::new(0.5, 0.8, 0.6).normalize();
@@ -122,8 +108,6 @@ struct ViewportRenderer {
     model_index_count: u32,
     scene_uniform_buf: wgpu::Buffer,
     scene_bind_group: wgpu::BindGroup,
-    // Time
-    start_time: std::time::Instant,
 }
 
 impl ViewportRenderer {
@@ -310,7 +294,6 @@ impl ViewportRenderer {
             model_index_count: mesh_indices.len() as u32,
             scene_uniform_buf,
             scene_bind_group,
-            start_time: std::time::Instant::now(),
         }
     }
 
@@ -320,14 +303,13 @@ impl ViewportRenderer {
             .write_buffer(&self.gradient_uniform_buf, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    fn render(&self, width: u32, height: u32) -> wgpu::Texture {
+    fn render(&self, width: u32, height: u32, camera: &Camera) -> wgpu::Texture {
         let w = width.max(1);
         let h = height.max(1);
         let aspect = w as f32 / h as f32;
-        let time = self.start_time.elapsed().as_secs_f32();
 
-        // Update scene uniforms (rotation)
-        let scene = build_scene_uniforms(time, aspect);
+        // Update scene uniforms from camera
+        let scene = build_scene_uniforms(camera, aspect);
         self.queue
             .write_buffer(&self.scene_uniform_buf, 0, bytemuck::bytes_of(&scene));
 
@@ -571,6 +553,8 @@ fn main() {
 
     let app_weak = app.as_weak();
     let mut renderer: Option<ViewportRenderer> = None;
+    let mut camera = Camera::default();
+    let mut prev_mouse: Option<(f32, f32)> = None;
 
     app.window()
         .set_rendering_notifier(move |state, graphics_api| {
@@ -587,6 +571,38 @@ fn main() {
                 slint::RenderingState::BeforeRendering => {
                     if let Some(r) = renderer.as_ref() {
                         if let Some(app) = app_weak.upgrade() {
+                            // ── Handle mouse input for camera ────────
+                            let mx = app.get_mouse_x();
+                            let my = app.get_mouse_y();
+                            let mmb = app.get_mmb_pressed();
+                            let shift = app.get_shift_held();
+                            let scroll = app.get_scroll_delta_y();
+
+                            // Scroll wheel: zoom
+                            if scroll.abs() > 0.01 {
+                                camera.zoom(scroll);
+                                app.set_scroll_delta_y(0.0);
+                            }
+
+                            // Middle mouse drag: orbit or pan
+                            if mmb {
+                                if let Some((px, py)) = prev_mouse {
+                                    let dx = mx - px;
+                                    let dy = my - py;
+                                    if shift {
+                                        // Shift + MMB: pan
+                                        camera.pan(dx, dy);
+                                    } else {
+                                        // MMB: orbit
+                                        camera.orbit(-dx * 0.005, -dy * 0.005);
+                                    }
+                                }
+                                prev_mouse = Some((mx, my));
+                            } else {
+                                prev_mouse = None;
+                            }
+
+                            // ── Render ────────────────────────────────
                             let top = slint_color_to_hex(app.get_gradient_top());
                             let bot = slint_color_to_hex(app.get_gradient_bottom());
                             r.set_gradient(top, bot);
@@ -594,7 +610,7 @@ fn main() {
                             let width = 1024;
                             let height = 768;
 
-                            let texture = r.render(width, height);
+                            let texture = r.render(width, height, &camera);
                             let image = slint::Image::try_from(texture)
                                 .expect("Failed to import wgpu texture into Slint");
                             app.set_viewport_image(image);

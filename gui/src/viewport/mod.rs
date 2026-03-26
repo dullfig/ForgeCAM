@@ -1,5 +1,7 @@
 //! Bridge between kernel tessellation and wgpu vertex buffers.
 
+pub mod camera;
+
 use rustkernel_kernel::Kernel;
 use rustkernel_topology::topo::SolidIdx;
 
