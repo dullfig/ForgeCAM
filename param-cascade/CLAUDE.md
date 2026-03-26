@@ -350,6 +350,84 @@ But here's the standard set for reference:
 | `compensation` | Cutter Compensation | None | Enum |
 | `compensation_direction` | Comp Direction | None | Enum |
 
+## Material Integration
+
+Material is NOT a parameter — it's a **context** that determines parameter defaults.
+The cascade has an additional root above the folder tree:
+
+```
+Material (Brass 360)
+  → Tool defaults (1/2 Carbide EM in Brass: SFM=600, FPT=0.004)
+    → Folder (ROUGHING: DOC=0.5D, WOC=65%)
+      → Operation (OP1 pocket: inherits all)
+```
+
+### How material change works
+
+"Change the material from 6061-T6 to Brass 360":
+
+1. **Resolve new defaults** — look up each tool's cutting data for Brass.
+   This comes from the tool library's `CuttingData` table (tool + material → SFM, FPT, etc.).
+2. **Inject into cascade root** — the material defaults become the bottom-most
+   fallback in the cascade, below the folder tree.
+3. **Cascade resolves** — every operation's feeds/speeds are re-resolved.
+   Folder overrides survive. Operation overrides survive. Locked values survive.
+4. **Warn on gaps** — if a tool has no cutting data for Brass, flag it:
+   "Tool T3 (1/4 HSS drill) has no data for Brass 360 — using aluminum defaults."
+5. **Warn on mismatches** — if a tool isn't suitable for the material:
+   "Tool T7 (HSS rougher) is not recommended for Brass — consider carbide."
+6. **Re-post** — toolpath regenerates with new feeds/speeds, post outputs new G-code.
+
+### What changes on material switch
+
+| Parameter | Typically changes? | Source |
+|-----------|-------------------|--------|
+| `surface_speed` | Yes | tool-library CuttingData |
+| `feed_per_tooth` | Yes | tool-library CuttingData |
+| `spindle_rpm` | Yes (derived from SFM + diameter) | computed |
+| `feed_rate` | Yes (derived from RPM × FPT × flutes) | computed |
+| `depth_of_cut` | Maybe | tool-library CuttingData |
+| `stepover` / `stepover_pct` | Maybe | tool-library CuttingData |
+| `coolant` | Maybe (Ti needs through-spindle) | tool-library CuttingData |
+| `cut_direction` | Rarely | unchanged |
+| `side_stock` / `bottom_stock` | No | unchanged |
+| `clearance_height` etc. | No | unchanged |
+
+### The "almost" in "almost just change the material and re-post"
+
+Three things that prevent fully automatic material change:
+
+1. **Missing data** — tool has no cutting data entry for the new material.
+   The cascade uses the previous material's values and warns. The machinist
+   must add cutting data or accept the defaults.
+
+2. **Tool unsuitability** — HSS tools in hardened steel, aluminum-specific
+   geometry in titanium. The tool library can flag this if tools have
+   `material_compatibility` tags, but it's advisory, not blocking.
+
+3. **Strategy change** — roughing aluminum is different from roughing titanium
+   (chip thinning, axial depth limits, dwell sensitivity). The CutScript
+   sequence might need to change, not just the parameters. This is the one
+   thing the cascade CAN'T automate — it requires the programmer's judgment.
+
+### Material definition
+
+Materials live in a simple lookup table (separate from param-cascade):
+
+```rust
+pub struct Material {
+    pub id: MaterialId,
+    pub name: String,                    // "6061-T6 Aluminum"
+    pub category: String,                // "Aluminum", "Steel", "Titanium"
+    pub hardness: Option<f64>,           // HRC or HB
+    pub machinability_rating: Option<f64>, // relative to B1112 steel = 100%
+    pub notes: String,
+}
+```
+
+The tool library stores `CuttingData` entries keyed by `(ToolId, MaterialId)`.
+The cascade queries the tool library to get material-specific defaults.
+
 ## Module Structure
 
 ```
